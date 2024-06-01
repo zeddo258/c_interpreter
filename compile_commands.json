@@ -1,0 +1,8 @@
+[
+{
+  "directory": "/Users/zeddo258/c_interpreter",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/c++  -I/Users/zeddo258/c_interpreter/include  -g -std=gnu++11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX13.3.sdk -o CMakeFiles/parser.dir/parser.cpp.o -c /Users/zeddo258/c_interpreter/parser.cpp",
+  "file": "/Users/zeddo258/c_interpreter/parser.cpp",
+  "output": "CMakeFiles/parser.dir/parser.cpp.o"
+}
+]

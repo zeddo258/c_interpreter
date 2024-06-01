@@ -1,0 +1,3 @@
+/Users/zeddo258/c_interpreter/CMakeFiles/parser.dir
+/Users/zeddo258/c_interpreter/CMakeFiles/edit_cache.dir
+/Users/zeddo258/c_interpreter/CMakeFiles/rebuild_cache.dir
