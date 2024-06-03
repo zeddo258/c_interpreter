@@ -1,5 +1,6 @@
 #include "json.hpp"
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <ctype.h>
 #include <iostream>
@@ -50,6 +51,25 @@ struct Token {
   TokenType type;
   string value;
 };
+
+float GStringToFloat( string str ) {
+  float result;
+  stringstream ss( str );
+  ss >> result;
+  return result;
+} // GStringToFloat()
+
+int GStringToInt( string str ) {
+  int result;
+  stringstream ss( str );
+  ss >> result;
+  return result;
+} // GStringToInt()
+
+float GRound( float num ) {
+  float result = round( num * 1000.0 ) / 1000.0;
+  return result;
+} // GRound()
 
 /*********************************************************************
  * ************************LEXER**************************************
@@ -293,6 +313,137 @@ Token *Lexer::ReadNextToken() {
   return tok;
 } // ReadNextToken()
 
+/*********************************************************************
+ * ************************Data type**********************************
+ *********************************************************************/
+
+class Obj {
+public:
+  virtual json Inspect() = 0;
+  virtual string Type() = 0;
+  virtual string Value() = 0;
+};
+
+class Integer : public Obj {
+  string mType;
+  int mValue;
+
+public:
+  Integer( size_t value, string tp ) {
+    mType = tp;
+    mValue = value;
+  } // Integer()
+
+  json Inspect();
+  string Type();
+  string Value();
+};
+
+string Integer::Type() { return mType; } // Type()
+
+string Integer::Value() {
+  stringstream ss;
+  ss << mValue;
+  string result = ss.str();
+  return result;
+} // Value
+
+json Integer::Inspect() {
+  return { { "Type", mType }, { "Value", mValue } };
+} // Inspect()
+
+class Float : public Obj {
+  string mType;
+  float mValue;
+
+public:
+  Float( float value, string tp ) {
+    mType = tp;
+    mValue = value;
+  } // Float()
+  string Type();
+  string Value();
+  json Inspect();
+};
+
+string Float::Type() { return mType; } // Type()
+
+string Float::Value() {
+  stringstream ss;
+  ss << mValue;
+  string res = ss.str();
+  return res;
+} // Value()
+
+json Float::Inspect() {
+  return { { "Type", mType }, { "Value", mValue } };
+} // Inspect()
+
+class Boolean : public Obj {
+  string mType;
+  bool mValue;
+
+public:
+  Boolean( bool value, string tp ) {
+    mType = tp;
+    mValue = value;
+  } // Float()
+
+  string Type();
+  string Value();
+  json Inspect();
+};
+
+string Boolean::Type() { return mType; } // Type()
+
+string Boolean::Value() {
+  if ( mValue == true )
+    return "true";
+  return "false";
+} // Value()
+
+json Boolean::Inspect() {
+  return { { "Type", mType }, { "Value", mValue } };
+} // Inspect()
+
+class String : public Obj {
+  string mType;
+  string mValue;
+
+public:
+  String( string type, string value ) {
+    mType = type;
+    mValue = value;
+  } // String()
+  json Inspect();
+  string Type();
+  string Value();
+};
+
+string String::Type() { return mType; } // Type()
+
+string String::Value() { return mValue; } // Value()
+
+json String::Inspect() {
+  return { { "Type", mType }, { "Value", mValue } };
+} // Inspect()
+
+class Null : public Obj {
+  string mType;
+
+public:
+  Null() { mType = "NULL"; } // Null()
+  json Inspect();
+  string Type();
+  string Value();
+};
+
+string Null::Type() { return mType; } // Type()
+
+string Null::Value() { return "Null"; } // Value()
+
+json Null::Inspect() { return { { "Type", mType } }; } // Inspect()
+
 class Node {
   string mType;
 
@@ -300,10 +451,11 @@ public:
   virtual json Print() = 0;
   virtual string Type() = 0;
   virtual string Value() = 0;
+  virtual Obj *Eval() = 0;
 };
 
 /*********************************************************************
- **************************Our AST type            *******************
+ ************************** Our AST node type            *******************
  *********************************************************************/
 class Statement : public Node {
 public:
@@ -335,9 +487,15 @@ public:
   json Print();
   void Expr();
   string Value();
+  Obj *Eval();
 };
 
-string IntExpr::Type() { return mType; }
+string IntExpr::Type() { return mType; } // Type()
+
+Obj *IntExpr::Eval() {
+  Obj *result = new Integer( mValue, mType );
+  return result;
+} // Eval()
 
 string IntExpr::Value() {
   stringstream ss;
@@ -368,7 +526,13 @@ public:
   json Print();
   void Expr();
   string Value();
+  Obj *Eval();
 };
+
+Obj *FloatExpr::Eval() {
+  Obj *result = new Float( mValue, mType );
+  return result;
+} // Eval()
 
 string FloatExpr::Value() {
   stringstream ss;
@@ -392,11 +556,18 @@ public:
     mValue = value;
     mType = "String";
   } // StringExpr
+
   string Type() { return mType; }
   void Expr();
   json Print();
   string Value();
+  Obj *Eval();
 };
+
+Obj *StringExpr::Eval() {
+  Obj *result = new String( mType, mValue );
+  return result;
+} // Eval()
 
 string StringExpr::Value() { return mValue; } // Value()
 
@@ -424,7 +595,118 @@ public:
   void Expr();
   json Print();
   string Value() { return ""; } // Value()
+  Obj *Eval();
+  Obj *EvalCompare( Obj *left, Obj *right );
+  Obj *EvalArithmatic( Obj *left, Obj *right );
 };
+
+Obj *BinExpr::EvalArithmatic( Obj *left, Obj *right ) {
+  Obj *res = NULL;
+  string leftType = left->Type();
+  string rightType = right->Type();
+  string rightValue = right->Value();
+  string leftValue = left->Value();
+
+  if ( leftType == "Float" || rightType == "Float" ) {
+    float left_value = GStringToFloat( leftValue );
+    float right_value = GStringToFloat( rightValue );
+    float result;
+    if ( mOp->type == PLUS )
+      result = left_value + right_value;
+    else if ( mOp->type == MINUS )
+      result = left_value + right_value;
+    else if ( mOp->type == DIVIDE )
+      result = left_value / right_value;
+    else if ( mOp->type == MULTIPLY )
+      result = left_value * right_value;
+    res = new Float( result, "Float" );
+  } // if
+
+  else {
+    int left_value = GStringToInt( leftValue );
+    int right_value = GStringToInt( rightValue );
+    int result;
+    if ( mOp->type == PLUS )
+      result = left_value + right_value;
+    else if ( mOp->type == MINUS )
+      result = left_value + right_value;
+    else if ( mOp->type == DIVIDE )
+      result = left_value / right_value;
+    else if ( mOp->type == MULTIPLY )
+      result = left_value * right_value;
+    res = new Integer( result, "Integer" );
+  } // else
+
+  return res;
+} // EvalCompare()
+
+Obj *BinExpr::EvalCompare( Obj *left, Obj *right ) {
+  Obj *res = NULL;
+  string leftType = left->Type();
+  string rightType = right->Type();
+  string rightValue = right->Value();
+  string leftValue = left->Value();
+  bool result = true;
+  if ( leftType == "Float" || rightType == "Float" ) {
+    float left_value = GStringToFloat( leftValue );
+    float right_value = GStringToFloat( rightValue );
+
+    if ( mOp->type == LT ) {
+      if ( left_value >= right_value )
+        result = false;
+    } // if
+    else if ( mOp->type == GT ) {
+      if ( left_value <= right_value )
+        result = false;
+    } // else if
+
+    else if ( mOp->type == EQ ) {
+      if ( left_value < right_value || left_value > right_value )
+        result = false;
+    } // if
+
+  } // if
+
+  else {
+    int left_value = GStringToInt( leftValue );
+    int right_value = GStringToInt( rightValue );
+
+    if ( mOp->type == LT ) {
+      if ( left_value >= right_value )
+        result = false;
+    } // if
+    else if ( mOp->type == GT ) {
+      if ( left_value <= right_value )
+        result = false;
+    } // else if
+
+    else if ( mOp->type == EQ ) {
+      if ( left_value < right_value || left_value > right_value )
+        result = false;
+    } // if
+
+  } // else
+
+  res = new Boolean( result, "Boolean" );
+  return res;
+} // EvalCompare()
+
+Obj *BinExpr::Eval() {
+  Obj *result = NULL;
+  Obj *left = mLeft->Eval();
+  Obj *right = mRight->Eval();
+
+  string leftType = left->Type();
+  string rightType = right->Type();
+
+  if ( mOp->type == PLUS || mOp->type == MINUS || mOp->type == DIVIDE ||
+       mOp->type == MULTIPLY )
+    result = EvalArithmatic( left, right );
+  else if ( mOp->type == LT || mOp->type == GT || mOp->type == EQ )
+    result = EvalCompare( left, right );
+
+  return result;
+} // Eval()
 
 json BinExpr::Print() {
   return { { "Type", mType },
@@ -450,7 +732,10 @@ public:
   void Expr() { } // Expr
   json Print();
   string Value() { return ""; } // Value()
+  Obj *Eval();
 };
+
+Obj *SymbolExpression::Eval() { return NULL; } // Eval()
 
 json SymbolExpression::Print() {
   return { { "Type", mType }, { "Value", mValue } };
@@ -471,7 +756,56 @@ public:
   void Expr() { }
   json Print();
   string Value() { return ""; } // Value()
+  Obj *Eval();
+  Obj *EvalPlusMinus();
 };
+
+// - 2 ;
+// + 2 ;
+Obj *UnaryExpression::EvalPlusMinus() {
+  Obj *rhs = mRhs->Eval();
+  Obj *result = NULL;
+  string value = rhs->Value();
+  if ( mOp->type == PLUS ) {
+    if ( rhs->Type() == "Float" ) {
+      float num = GStringToFloat( value );
+      result = new Float( num, "Float" );
+    } // if
+
+    else if ( rhs->Type() == "Integer" ) {
+      int num = GStringToInt( value );
+      result = new Integer( num, "Integer" );
+    } // else if
+
+  } // if
+
+  else if ( mOp->type == MINUS ) {
+    if ( rhs->Type() == "Float" ) {
+      float num = GStringToFloat( value );
+      num = num * -1.0;
+      result = new Float( num, "Float" );
+    } // if
+
+    else if ( rhs->Type() == "Integer" ) {
+      int num = GStringToInt( value );
+      num = num * -1;
+      cout << num;
+      result = new Integer( num, "Integer" );
+    } // else if
+  } // else if
+
+  return result;
+} // UnaryExpression()
+
+Obj *UnaryExpression::Eval() {
+  Obj *result = NULL;
+  if ( mOp->type == PLUS || mOp->type == MINUS ) {
+    cout << "Evaluate plus minus : ";
+    result = EvalPlusMinus();
+  } // if
+
+  return result;
+} // Eval()
 
 json UnaryExpression::Print() {
   return { { "Type", mType },
@@ -500,7 +834,10 @@ public:
   void Stmt() {};
   json Print();
   string Value() { return ""; } // Value()
+  Obj *Eval();
 };
+
+Obj *AssignmentStmt::Eval() { return NULL; } // Eval()
 
 json AssignmentStmt::Print() {
   return { { "Type", mType },
@@ -519,12 +856,30 @@ public:
   json Print();
   string Type() { return "Program"; }
   string Value() { return ""; } // Value()
-  void Pop();
+  Statement *Pop();
+  Obj *Eval();
 };
 
-void Program::Pop() {
-  if ( ! mBody.empty() )
+Obj *Program::Eval() {
+  Obj *obj = NULL;
+  Statement *stmt = NULL;
+  while ( mBody.size() > 0 ) {
+    stmt = Pop();
+    obj = stmt->Eval();
+    cout << obj->Inspect().dump( 4 ) << endl;
+  } // while
+
+  return obj;
+} // Eval()
+
+Statement *Program::Pop() {
+  Statement *stmt = NULL;
+  if ( ! mBody.empty() ) {
+    stmt = mBody.front();
     mBody.erase( mBody.begin() );
+  } // if
+
+  return stmt;
 } // Pop()
 
 json Program::Print() {
@@ -553,7 +908,13 @@ public:
   void Stmt() { }
   json Print();
   string Value() { return ""; } // Value()
+  Obj *Eval();
 };
+
+Obj *ExpressionStatement::Eval() {
+  Obj *obj = mExpr->Eval();
+  return obj;
+} // Eval()
 
 json ExpressionStatement::Print() { return mExpr->Print(); } // Print()
 
@@ -566,153 +927,15 @@ public:
   void Stmt() {};
   json Print() { return { "Type", mType }; } // Print()
   string Value() { return ""; }              // Value()
-  void Expr() {};
+  Obj *Eval();
 };
+
+Obj *NullStatement::Eval() {
+  Obj *obj = new Null();
+  return obj;
+} // Eval()
 
 string NullStatement::Type() { return mType; } // Type();
-
-/*********************************************************************
- * ************************Data type**********************************
- *********************************************************************/
-
-class Obj {
-public:
-  virtual json Inspect() = 0;
-};
-
-class Integer : public Obj {
-  string mType;
-  size_t mValue;
-
-public:
-  Integer( size_t value, string tp ) {
-    mType = tp;
-    mValue = value;
-  } // Integer()
-
-  json Inspect();
-};
-
-json Integer::Inspect() {
-  return { { "Type", mType }, { "Value", mValue } };
-} // Inspect()
-
-class Float : public Obj {
-  string mType;
-  float mValue;
-
-public:
-  Float( float value, string tp ) {
-    mType = tp;
-    mValue = value;
-  } // Float()
-
-  json Inspect();
-};
-
-json Float::Inspect() {
-  return { { "Type", mType }, { "Value", mValue } };
-} // Inspect()
-
-class Boolean : public Obj {
-  string mType;
-  bool mValue;
-
-public:
-  Boolean( bool value, string tp ) {
-    mType = tp;
-    mValue = value;
-  } // Float()
-
-  json Inspect();
-};
-
-json Boolean::Inspect() {
-  return { { "Type", mType }, { "Value", mValue } };
-} // Inspect()
-
-class Null : public Obj {
-  string mType;
-
-public:
-  Null() { mType = "NULL"; } // Null()
-  json Inspect();
-};
-
-json Null::Inspect() { return { { "Type", mType } }; } // Inspect()
-
-/*********************************************************************
- * ************************ Intepreter **************************************
- *********************************************************************/
-
-class Interpreter {
-public:
-  // Helper function
-  size_t StringToNum( string str );
-  float StringToFloat( string str );
-  Obj *EvaluateStmts( vector< Statement * > stmts );
-  Obj *Evaluate( Node *ASTnode );
-};
-
-size_t Interpreter::StringToNum( string str ) {
-  stringstream ss( str );
-  size_t num;
-  ss >> num;
-  return num;
-} // StringToNum()
-
-float Interpreter::StringToFloat( string str ) {
-  stringstream ss( str );
-  float num;
-  ss >> num;
-  return num;
-} // StringToFloat()
-
-Obj *Interpreter::Evaluate( Node *ASTnode ) {
-  string type = ASTnode->Type();
-  string value = ASTnode->Value();
-  Obj *obj = NULL;
-
-  if ( type == "Integer" ) {
-    size_t num = StringToNum( value );
-    obj = new Integer( num, type );
-  } // if
-
-  else if ( type == "Float" ) {
-    float num = StringToFloat( value );
-    obj = new Float( num, type );
-  } // else if
-
-  else if ( type == "Program" ) {
-    Program *pr = dynamic_cast< Program * >( ASTnode );
-    vector< Statement * > stmt = pr->mBody;
-    obj = EvaluateStmts( stmt );
-  } // else if
-
-  else if ( type == "Null Statement" ) {
-    obj = new Null();
-  } // else if
-
-  else if ( type == "Expression Statement" ) {
-    ExpressionStatement *es = dynamic_cast< ExpressionStatement * >( ASTnode );
-    Expression *expr = es->Expr();
-    obj = Evaluate( expr );
-  } // else if
-
-  else {
-    cout << "No correct type founded for: " << type << endl;
-  } // else
-  return obj;
-} // Evaluate()
-
-Obj *Interpreter::EvaluateStmts( vector< Statement * > stmt ) {
-  Obj *result = NULL;
-  for ( int i = 0; i < stmt.size(); ++i ) {
-    result = Evaluate( stmt [ i ] );
-    cout << result->Inspect().dump( 4 ) << endl;
-  } // for
-  return result;
-} //
 
 /*********************************************************************
  **************************      Parser         *******************
@@ -820,6 +1043,7 @@ void Parser::Mapper() {
   RegisterPrefix( FLOAT, NUMBER_PARSER );
   RegisterPrefix( INT, NUMBER_PARSER );
   RegisterPrefix( MINUS, PREFIX_PARSER );
+  RegisterPrefix( PLUS, PREFIX_PARSER );
   RegisterPrefix( LPAREN, GROUP_PARSER );
 
   RegisterInfix( PLUS, INFIX_PARSER );
@@ -969,10 +1193,6 @@ Expression *Parser::ParseIdentifier() {
   return id;
 } // ParseIdentifier()
 
-// 1
-// +
-// 2
-// ;
 Expression *Parser::ParseExpression( BindingPower bp ) {
 
   if ( mPrefixFNs.find( mCurToken->type ) == mPrefixFNs.end() ) {
@@ -1041,7 +1261,6 @@ Statement *Parser::ParseStatement() {
 Program *Parser::ParseProgram() {
   // Needed object
   Program *program = new Program();
-  Interpreter *interpreter = new Interpreter();
   Obj *obj = NULL;
   // Input string
   string input = "";
@@ -1056,7 +1275,7 @@ Program *Parser::ParseProgram() {
 
     if ( stmt != NULL ) {
       program->Append( stmt );
-      obj = interpreter->Evaluate( program );
+      obj = program->Eval();
       cout << stmt->Print().dump( 4 ) << endl;
       // program->Pop();
     } // if
