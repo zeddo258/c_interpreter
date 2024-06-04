@@ -106,7 +106,7 @@ public:
   Token *SetNewToken( string value, TokenType type );
 };
 
-void Lexer::AppendStr( string str ) { mStr += str; } // AppendStr()
+void Lexer::AppendStr( string str ) { mStr += "\n" + str; } // AppendStr()
 
 char Lexer::PeekChar() {
   if ( ! HasMoreToken() )
@@ -244,7 +244,7 @@ void Lexer::SkipWhiteSpace() {
 } // SkipWhiteSpace()
 
 void Lexer::SkipComment() {
-  while ( HasMoreToken() )
+  while ( HasMoreToken() && mCh != '\n' )
     ReadChar();
   ReadChar();
 } // SkipComment()
@@ -306,9 +306,10 @@ Token *Lexer::ReadNextToken() {
   else if ( mCh == '/' )
     tok = ReadDivide();
 
-  else
+  else {
     tok = SetNewToken( "\0", ILLEGAL );
-
+    cout << "Unregconized token : " << mCh << endl;
+  } // else
   ReadChar();
   return tok;
 } // ReadNextToken()
@@ -444,6 +445,38 @@ string Null::Value() { return "Null"; } // Value()
 
 json Null::Inspect() { return { { "Type", mType } }; } // Inspect()
 
+//------------------Environment------------------------------------------
+class Environment {
+  map< string, Obj * > mVars;
+
+public:
+  Environment() {};
+
+  void Set( string var, Obj *data );
+  Obj *Get( string var );
+  bool VarExist( string var );
+};
+
+bool Environment::VarExist( string var ) {
+  if ( mVars.find( var ) != mVars.end() )
+    return true;
+  return false;
+} // VarExist()
+
+void Environment::Set( string var, Obj *data ) {
+  if ( VarExist( var ) )
+    mVars [ var ] = data;
+  else
+    mVars.insert( { var, data } );
+} // Set()
+
+Obj *Environment::Get( string var ) {
+  Obj *obj = mVars [ var ];
+  return obj;
+} // Get()
+
+//------------------------------- Node ---------------------------
+
 class Node {
   string mType;
 
@@ -451,7 +484,7 @@ public:
   virtual json Print() = 0;
   virtual string Type() = 0;
   virtual string Value() = 0;
-  virtual Obj *Eval() = 0;
+  virtual Obj *Eval( Environment *env ) = 0;
 };
 
 /*********************************************************************
@@ -487,12 +520,12 @@ public:
   json Print();
   void Expr();
   string Value();
-  Obj *Eval();
+  Obj *Eval( Environment *env );
 };
 
 string IntExpr::Type() { return mType; } // Type()
 
-Obj *IntExpr::Eval() {
+Obj *IntExpr::Eval( Environment *env ) {
   Obj *result = new Integer( mValue, mType );
   return result;
 } // Eval()
@@ -526,10 +559,10 @@ public:
   json Print();
   void Expr();
   string Value();
-  Obj *Eval();
+  Obj *Eval( Environment *env );
 };
 
-Obj *FloatExpr::Eval() {
+Obj *FloatExpr::Eval( Environment *env ) {
   Obj *result = new Float( mValue, mType );
   return result;
 } // Eval()
@@ -561,10 +594,10 @@ public:
   void Expr();
   json Print();
   string Value();
-  Obj *Eval();
+  Obj *Eval( Environment *env );
 };
 
-Obj *StringExpr::Eval() {
+Obj *StringExpr::Eval( Environment *env ) {
   Obj *result = new String( mType, mValue );
   return result;
 } // Eval()
@@ -595,7 +628,7 @@ public:
   void Expr();
   json Print();
   string Value() { return ""; } // Value()
-  Obj *Eval();
+  Obj *Eval( Environment *env );
   Obj *EvalCompare( Obj *left, Obj *right );
   Obj *EvalArithmatic( Obj *left, Obj *right );
 };
@@ -629,7 +662,7 @@ Obj *BinExpr::EvalArithmatic( Obj *left, Obj *right ) {
     if ( mOp->type == PLUS )
       result = left_value + right_value;
     else if ( mOp->type == MINUS )
-      result = left_value + right_value;
+      result = left_value - right_value;
     else if ( mOp->type == DIVIDE )
       result = left_value / right_value;
     else if ( mOp->type == MULTIPLY )
@@ -650,6 +683,8 @@ Obj *BinExpr::EvalCompare( Obj *left, Obj *right ) {
   if ( leftType == "Float" || rightType == "Float" ) {
     float left_value = GStringToFloat( leftValue );
     float right_value = GStringToFloat( rightValue );
+    left_value = GRound( left_value );
+    right_value = GRound( right_value );
 
     if ( mOp->type == LT ) {
       if ( left_value >= right_value )
@@ -691,10 +726,12 @@ Obj *BinExpr::EvalCompare( Obj *left, Obj *right ) {
   return res;
 } // EvalCompare()
 
-Obj *BinExpr::Eval() {
+Obj *BinExpr::Eval( Environment *env ) {
   Obj *result = NULL;
-  Obj *left = mLeft->Eval();
-  Obj *right = mRight->Eval();
+  Obj *left = mLeft->Eval( env );
+  Obj *right = mRight->Eval( env );
+  if ( left == NULL || right == NULL )
+    return NULL;
 
   string leftType = left->Type();
   string rightType = right->Type();
@@ -731,11 +768,18 @@ public:
   string Type() { return mType; }
   void Expr() { } // Expr
   json Print();
-  string Value() { return ""; } // Value()
-  Obj *Eval();
+  string Value() { return mValue; } // Value()
+  Obj *Eval( Environment *env );
 };
 
-Obj *SymbolExpression::Eval() { return NULL; } // Eval()
+Obj *SymbolExpression::Eval( Environment *env ) {
+  Obj *var = NULL;
+  if ( env->VarExist( mValue ) )
+    var = env->Get( mValue );
+  else
+    cout << "Undefined identifier : " << mValue << endl;
+  return var;
+} // Eval()
 
 json SymbolExpression::Print() {
   return { { "Type", mType }, { "Value", mValue } };
@@ -756,14 +800,17 @@ public:
   void Expr() { }
   json Print();
   string Value() { return ""; } // Value()
-  Obj *Eval();
-  Obj *EvalPlusMinus();
+  Obj *Eval( Environment *env );
+  Obj *EvalPlusMinus( Environment *env );
 };
 
 // - 2 ;
 // + 2 ;
-Obj *UnaryExpression::EvalPlusMinus() {
-  Obj *rhs = mRhs->Eval();
+Obj *UnaryExpression::EvalPlusMinus( Environment *env ) {
+  Obj *rhs = mRhs->Eval( env );
+  if ( rhs == NULL )
+    return NULL;
+
   Obj *result = NULL;
   string value = rhs->Value();
   if ( mOp->type == PLUS ) {
@@ -797,11 +844,11 @@ Obj *UnaryExpression::EvalPlusMinus() {
   return result;
 } // UnaryExpression()
 
-Obj *UnaryExpression::Eval() {
+Obj *UnaryExpression::Eval( Environment *env ) {
   Obj *result = NULL;
   if ( mOp->type == PLUS || mOp->type == MINUS ) {
     cout << "Evaluate plus minus : ";
-    result = EvalPlusMinus();
+    result = EvalPlusMinus( env );
   } // if
 
   return result;
@@ -834,10 +881,17 @@ public:
   void Stmt() {};
   json Print();
   string Value() { return ""; } // Value()
-  Obj *Eval();
+  Obj *Eval( Environment *env );
 };
 
-Obj *AssignmentStmt::Eval() { return NULL; } // Eval()
+Obj *AssignmentStmt::Eval( Environment *env ) {
+  Obj *rhs = mValue->Eval( env );
+  if ( rhs == NULL )
+    return NULL;
+  string varName = mName->Value();
+  env->Set( varName, rhs );
+  return rhs;
+} // Eval()
 
 json AssignmentStmt::Print() {
   return { { "Type", mType },
@@ -852,21 +906,25 @@ class Program : public Node {
 
 public:
   vector< Statement * > mBody;
+
   void Append( Statement *stmt );
   json Print();
   string Type() { return "Program"; }
   string Value() { return ""; } // Value()
   Statement *Pop();
-  Obj *Eval();
+  Obj *Eval( Environment *env );
 };
 
-Obj *Program::Eval() {
+Obj *Program::Eval( Environment *env ) {
   Obj *obj = NULL;
   Statement *stmt = NULL;
   while ( mBody.size() > 0 ) {
     stmt = Pop();
-    obj = stmt->Eval();
-    cout << obj->Inspect().dump( 4 ) << endl;
+    obj = stmt->Eval( env );
+    if ( obj != NULL )
+      cout << obj->Inspect().dump( 4 ) << endl;
+    else
+      return NULL;
   } // while
 
   return obj;
@@ -908,11 +966,11 @@ public:
   void Stmt() { }
   json Print();
   string Value() { return ""; } // Value()
-  Obj *Eval();
+  Obj *Eval( Environment *env );
 };
 
-Obj *ExpressionStatement::Eval() {
-  Obj *obj = mExpr->Eval();
+Obj *ExpressionStatement::Eval( Environment *env ) {
+  Obj *obj = mExpr->Eval( env );
   return obj;
 } // Eval()
 
@@ -927,10 +985,10 @@ public:
   void Stmt() {};
   json Print() { return { "Type", mType }; } // Print()
   string Value() { return ""; }              // Value()
-  Obj *Eval();
+  Obj *Eval( Environment *env );
 };
 
-Obj *NullStatement::Eval() {
+Obj *NullStatement::Eval( Environment *env ) {
   Obj *obj = new Null();
   return obj;
 } // Eval()
@@ -975,7 +1033,7 @@ public:
   } // Parser
 
   void Init();
-
+  void Reset();
   // Helper function
   void Mapper();
   void NextToken();
@@ -1012,6 +1070,8 @@ void Parser::NextToken() {
   mCurToken = mPeekToken;
   mPeekToken = mLexer->ReadNextToken();
 } // NextToken()
+
+void Parser::Reset() { mPeekToken->type = EOFF; } // Reset()
 
 void Parser::Init() {
   string str = "";
@@ -1253,6 +1313,8 @@ Statement *Parser::ParseStatement() {
     stmt = ParseAssignStmt();
   else if ( CurrentTokenIs( SEMICOLON ) )
     stmt = new NullStatement();
+  else if ( CurrentTokenIs( ILLEGAL ) )
+    Reset();
   else
     stmt = ParseExpressionStmt();
   return stmt;
@@ -1262,6 +1324,7 @@ Program *Parser::ParseProgram() {
   // Needed object
   Program *program = new Program();
   Obj *obj = NULL;
+  Environment *env = new Environment();
   // Input string
   string input = "";
   getline( cin, input );
@@ -1275,8 +1338,10 @@ Program *Parser::ParseProgram() {
 
     if ( stmt != NULL ) {
       program->Append( stmt );
-      obj = program->Eval();
       cout << stmt->Print().dump( 4 ) << endl;
+      obj = program->Eval( env ); // Return the last node's evaluation
+      if ( obj == NULL )
+        Reset();
       // program->Pop();
     } // if
 
