@@ -1,20 +1,17 @@
-#include "json.hpp"
-#include <cctype>
-#include <cmath>
-#include <cstring>
-#include <ctype.h>
-#include <iostream>
-#include <sstream>
-#include <stdlib.h>
-#include <string>
-#include <vector>
+# include <cctype>
+# include <cmath>
+# include <cstring>
+# include <ctype.h>
+# include <iostream>
+# include <map>
+# include <sstream>
+# include <stdlib.h>
+# include <string>
+# include <vector>
+# include <iomanip> 
 
 using namespace std;
-using json = nlohmann::json;
 
-/*
- * Interface for token type
- */
 typedef enum {
   ILLEGAL,
   EOFF,
@@ -34,34 +31,49 @@ typedef enum {
   RBRACE,
   LT,
   GT,
+  LTEQ,
+  GTEQ,
   EQ,
   NOT_EQ,
   NOT,
 
   // Keywords
+  KEY_IF,
+  KEY_ELSE,
+  KEY_ELIF,
   KEY_INT,
   KEY_STRING,
   KEY_FLOAT,
   KEY_BOOL,
   KEY_VOID,
   KEY_CUSTOM_TYPE
-} TokenType;
+} TokenType
+;
 
 struct Token {
   TokenType type;
   string value;
 };
 
+string GetLine() {
+  string line;
+  char ch; 
+  while ( cin.get( ch ) && ch != '\n' )
+    line += ch; 
+
+  return line;
+} // GetLine()
+
 float GStringToFloat( string str ) {
   float result;
-  stringstream ss( str );
+  stringstream ss( str ) ;
   ss >> result;
   return result;
 } // GStringToFloat()
 
 int GStringToInt( string str ) {
   int result;
-  stringstream ss( str );
+  stringstream ss( str ) ;
   ss >> result;
   return result;
 } // GStringToInt()
@@ -71,9 +83,47 @@ float GRound( float num ) {
   return result;
 } // GRound()
 
-/*********************************************************************
- * ************************LEXER**************************************
- *********************************************************************/
+bool GCompareFloats( float left_value, float right_value, float epsilon, TokenType type ) {
+
+  bool result = false; 
+  if ( type == LT ) 
+    result = left_value < ( right_value - epsilon );
+  else if ( type == GT )
+    result = left_value > ( right_value + epsilon );
+  else if ( type == EQ )
+    result = fabs( left_value - right_value ) < epsilon;
+  else if ( type == LTEQ ) {
+    if ( left_value < right_value + epsilon || 
+         fabs( left_value - right_value ) < epsilon )
+      result = true; 
+  } // else if
+  else if ( type == GTEQ ) {
+    if ( left_value > right_value + epsilon || 
+         fabs( left_value - right_value ) < epsilon )
+      result = true; 
+  } // else if
+
+  return result;
+} // GCompareFloats()
+
+bool GCompareInts( int left_value, int right_value, TokenType type ) {
+
+  bool result = false; 
+  if ( type == LT ) 
+    result = left_value < right_value;
+  else if ( type == GT )
+    result = left_value > right_value;
+  else if ( type == EQ )
+    result = left_value == right_value;
+  else if ( type == LTEQ ) 
+    result = left_value <=  right_value;
+  else if ( type == GTEQ ) 
+    result = left_value >=  right_value;
+
+  return result;
+} // GCompareInts()
+
+// --------------------------------------- Lexer ---------------------------
 class Lexer {
   string mStr;
   size_t mCurrent;
@@ -82,247 +132,293 @@ class Lexer {
 
 public:
   Lexer( string str ) {
-    this->mStr = str;
-    this->mPeek = 0;
-    ReadChar();
-  } // Tokenizer()
+    mStr = str;
+    mPeek = 0;
+    ReadChar( ) ;
+  } // Lexer()
 
-  void ReadChar();
-  void AppendStr( string str );
-  bool HasMoreToken();
-  void SkipComment();
-  void SkipWhiteSpace();
+  void ReadChar( ) ;
+  void AppendStr( string str ) ;
+  bool HasMoreToken( ) ;
+  void SkipComment( ) ;
+  void SkipWhiteSpace( ) ;
 
-  Token *ReadDivide();
-  Token *ReadNot();
-  Token *ReadNumber();
-  Token *ReadID();
-  Token *ReadAssign();
-  Token *ReadPar();
-  Token *ReadOperator();
-  Token *ReadNextToken();
-  char PeekChar();
+  Token *ReadDivide( ) ;
+  Token *ReadNot( ) ;
+  Token *ReadNumber( ) ;
+  Token *ReadID( ) ;
+  Token *ReadAssign( ) ;
+  Token *ReadPar( ) ;
+  Token *ReadOperator( ) ;
+  Token *ReadNextToken( ) ;
+  Token *ReadBraces( ) ;
+  Token *ReadCompare( ) ;
+  char PeekChar( ) ;
 
-  Token *SetNewToken( string value, TokenType type );
+  Token *SetNewToken( string value, TokenType type ) ;
 };
 
 void Lexer::AppendStr( string str ) { mStr += "\n" + str; } // AppendStr()
 
-char Lexer::PeekChar() {
-  if ( ! HasMoreToken() )
+char Lexer::PeekChar( ) {
+  if ( ! HasMoreToken( ) )
     return '\0';
   return mStr [ mPeek ];
-} // PeekChar()
+} // Lexer::PeekChar()
 
 // Read and advance
-void Lexer::ReadChar() {
-  if ( ! HasMoreToken() )
+void Lexer::ReadChar( ) {
+  if ( ! HasMoreToken( ) )
     mCh = '\0';
   else
     mCh = mStr [ mPeek ];
   mCurrent = mPeek;
   mPeek++;
-} // ReadChar
+} // Lexer::ReadChar()
 
 // Helper function to check if there are more token to be cut
-bool Lexer::HasMoreToken() {
-  return this->mPeek < this->mStr.length();
-} // hasMoreToken()
+bool Lexer::HasMoreToken( ) {
+  return mPeek < mStr.length( ) ;
+} // Lexer::HasMoreToken()
 
-Token *Lexer::ReadAssign() {
+Token *Lexer::ReadAssign( ) {
   Token *tok = NULL;
-  if ( PeekChar() == '=' ) {
-    tok = SetNewToken( ":=", ASSIGN );
-    ReadChar();
+  if ( PeekChar( ) == '=' ) {
+    tok = SetNewToken( ":=", ASSIGN ) ;
+    ReadChar( ) ;
   } // if
   else
-    tok = SetNewToken( ":", ILLEGAL );
+    tok = SetNewToken( ":", ILLEGAL ) ;
   return tok;
-} // ReadAssign()
+} // Lexer::ReadAssign()
 
-Token *Lexer::ReadNot() {
+Token *Lexer::ReadBraces( ) {
   Token *tok = NULL;
-  if ( PeekChar() == '=' ) {
-    tok = SetNewToken( "!=", NOT_EQ );
-    ReadChar();
+  if ( mCh == '{' )
+    tok = SetNewToken( "{", LBRACE ) ;
+  else if ( mCh == '}' )
+    tok = SetNewToken( "}", RBRACE ) ;
+  return tok;
+} // Lexer::ReadBraces()
+
+Token *Lexer::ReadNot( ) {
+  Token *tok = NULL;
+  if ( PeekChar( ) == '=' ) {
+    tok = SetNewToken( "!=", NOT_EQ ) ;
+    ReadChar( ) ;
   } // if
   else
-    tok = SetNewToken( "!", NOT );
+    tok = SetNewToken( "!", NOT ) ;
   return tok;
-} // ReadNot()
+} // Lexer::ReadNot()
 
-Token *Lexer::ReadDivide() {
+Token *Lexer::ReadDivide( ) {
   Token *tok = NULL;
-  if ( PeekChar() == '/' ) {
-    SkipComment();
-    tok = ReadNextToken();
+  if ( PeekChar( ) == '/' ) {
+    SkipComment( ) ;
+    tok = ReadNextToken( ) ;
   } // if
   else
-    tok = SetNewToken( "/", DIVIDE );
+    tok = SetNewToken( "/", DIVIDE ) ;
   return tok;
-} // ReadDivide()
+} // Lexer::ReadDivide()
 
-Token *Lexer::ReadNumber() {
+Token *Lexer::ReadNumber( ) {
   Token *tok = NULL;
   string number = "";
   // if it start with an.
   // .122 .22122 .5125.2512 .2124.helloworld
   number += mCh;
   if ( mCh == '.' ) {
-    ReadChar();
+    ReadChar( ) ;
     while ( isdigit( mCh ) ) {
       number += mCh;
-      ReadChar();
+      ReadChar( ) ;
     } // while
 
-    if ( number.length() == 1 )
-      tok = SetNewToken( number, ILLEGAL );
+    if ( number.length( ) == 1 )
+      tok = SetNewToken( number, ILLEGAL ) ;
     else
-      tok = SetNewToken( number, FLOAT );
+      tok = SetNewToken( number, FLOAT ) ;
   } // if
 
   // 1.231 3.1415 2.19 2 23 1.
   else if ( isdigit( mCh ) ) {
-    ReadChar();
+    ReadChar( ) ;
     while ( isdigit( mCh ) || mCh == '.' ) {
       number += mCh;
       // if dot is encoutered
       if ( mCh == '.' ) {
-        ReadChar();
+        ReadChar( ) ;
         while ( isdigit( mCh ) ) {
           number += mCh;
-          ReadChar();
+          ReadChar( ) ;
         } // while
-        tok = SetNewToken( number, FLOAT );
+
+        tok = SetNewToken( number, FLOAT ) ;
         return tok;
       } // if
-      ReadChar();
+
+      ReadChar( ) ;
     } // while
 
-    tok = SetNewToken( number, INT );
+    tok = SetNewToken( number, INT ) ;
   } // else if
 
   return tok;
-} // GetNumber()
+} // Lexer::ReadNumber()
 
-Token *Lexer::ReadID() {
+Token *Lexer::ReadID( ) {
   string id = "";
+  Token *tok = NULL;
   while ( isalnum( mCh ) || mCh == '_' ) {
     id += mCh;
-    ReadChar();
+    ReadChar( ) ;
   } // while
-  Token *tok = SetNewToken( id, IDENT );
+
+  if ( id == "if" )
+    tok = SetNewToken( id, KEY_IF ) ;
+  else if ( id == "else" )
+    tok = SetNewToken( id, KEY_ELSE ) ;
+  else if ( id == "else if" )
+    tok = SetNewToken( id, KEY_ELIF ) ;
+  else
+    tok = SetNewToken( id, IDENT ) ;
   return tok;
-} // sliceID()
+} // Lexer::ReadID()
 
 Token *Lexer::SetNewToken( string val, TokenType type ) {
   Token *tok = new Token;
   tok->value = val;
   tok->type = type;
   return tok;
-} // SetNewToken()
+} // Lexer::SetNewToken()
 
 // ReadOperator
-Token *Lexer::ReadOperator() {
+Token *Lexer::ReadOperator( ) {
   Token *tok = new Token;
   string sign = "";
   sign += mCh;
   if ( mCh == '+' )
-    tok = SetNewToken( sign, PLUS );
+    tok = SetNewToken( sign, PLUS ) ;
   else if ( mCh == '-' )
-    tok = SetNewToken( sign, MINUS );
+    tok = SetNewToken( sign, MINUS ) ;
   else if ( mCh == '*' )
-    tok = SetNewToken( sign, MULTIPLY );
+    tok = SetNewToken( sign, MULTIPLY ) ;
   else if ( mCh == '/' )
-    tok = SetNewToken( sign, DIVIDE );
+    tok = SetNewToken( sign, DIVIDE ) ;
   return tok;
-} // GetOperator()
+} // Lexer::ReadOperator()
 
-void Lexer::SkipWhiteSpace() {
+void Lexer::SkipWhiteSpace( ) {
   while ( isspace( mCh ) )
-    ReadChar();
-} // SkipWhiteSpace()
+    ReadChar( ) ;
+} // Lexer::SkipWhiteSpace()
 
-void Lexer::SkipComment() {
-  while ( HasMoreToken() && mCh != '\n' )
-    ReadChar();
-  ReadChar();
-} // SkipComment()
+void Lexer::SkipComment( ) {
+  while ( HasMoreToken( ) && mCh != '\n' )
+    ReadChar( ) ;
+  ReadChar( ) ;
+} // Lexer::SkipComment()
 
-Token *Lexer::ReadPar() {
+Token *Lexer::ReadPar( ) {
   Token *tok = NULL;
   if ( mCh == '(' )
-    tok = SetNewToken( "(", LPAREN );
+    tok = SetNewToken( "(", LPAREN ) ;
   else
-    tok = SetNewToken( ")", RPAREN );
+    tok = SetNewToken( ")", RPAREN ) ;
   return tok;
-} // ReadPar()
+} // Lexer::ReadPar()
+
+Token *Lexer::ReadCompare( ) {
+  Token *tok = NULL;
+  if ( mCh == '<' ) {
+    
+    if ( PeekChar() == '=' ) {
+      tok = SetNewToken( "<=", LTEQ );
+      ReadChar();
+    } // if 
+
+    else
+      tok = SetNewToken( "<", LT ) ;
+  } // if
+
+  else if ( mCh == '>' ) {
+    if ( PeekChar() == '=' ) {
+      tok = SetNewToken( ">=", GTEQ );
+      ReadChar();
+    } // if 
+    else
+      tok = SetNewToken( ">", GT ) ;  
+  } // else if
+
+  return tok;
+} // Lexer::ReadCompare()
 
 // Get next token
-Token *Lexer::ReadNextToken() {
+Token *Lexer::ReadNextToken( ) {
   Token *tok;
 
   if ( isspace( mCh ) )
-    SkipWhiteSpace();
+    SkipWhiteSpace( ) ;
 
   // Number encountered eg 1.23 .235 251,....
   if ( isdigit( mCh ) || mCh == '.' ) {
-    tok = ReadNumber();
+    tok = ReadNumber( ) ;
     return tok;
   } // if
 
   else if ( mCh == '\0' ) {
-    tok = SetNewToken( "\0", EOFF );
+    tok = SetNewToken( "\0", EOFF ) ;
   } // else if
 
   // slicing id Hello_world, temp, flag,....
+  // TODO:  slicing keyword,
   else if ( isalpha( mCh ) ) {
-    tok = ReadID();
+    tok = ReadID( ) ;
     return tok;
   } // else if
 
   else if ( mCh == ';' )
-    tok = SetNewToken( ";", SEMICOLON );
+    tok = SetNewToken( ";", SEMICOLON ) ;
 
   else if ( mCh == '+' || mCh == '-' || mCh == '*' )
-    tok = ReadOperator();
+    tok = ReadOperator( ) ;
 
   else if ( mCh == '(' || mCh == ')' )
-    tok = ReadPar();
+    tok = ReadPar( ) ;
 
   else if ( mCh == ':' )
-    tok = ReadAssign();
+    tok = ReadAssign( ) ;
 
   else if ( mCh == '=' )
-    tok = SetNewToken( "=", EQ );
+    tok = SetNewToken( "=", EQ ) ;
 
-  else if ( mCh == '<' )
-    tok = SetNewToken( "<", LT );
+  else if ( mCh == '{' || mCh == '}' )
+    tok = ReadBraces( ) ;
 
-  else if ( mCh == '>' )
-    tok = SetNewToken( ">", GT );
+  else if ( mCh == '<' || mCh == '>' )
+    tok = ReadCompare(); 
 
   // Skip comment
   else if ( mCh == '/' )
-    tok = ReadDivide();
+    tok = ReadDivide( ) ;
 
   else {
-    tok = SetNewToken( "\0", ILLEGAL );
-    cout << "Unregconized token : " << mCh << endl;
+    tok = SetNewToken( "\0", ILLEGAL ) ;
+    cout << "Unrecognized token with first char : '" << mCh << "'" << endl;
   } // else
-  ReadChar();
+
+  ReadChar( ) ;
   return tok;
-} // ReadNextToken()
+} // Lexer::ReadNextToken()
 
-/*********************************************************************
- * ************************Data type**********************************
- *********************************************************************/
-
+// --------------------------- Data type -----------------------------
 class Obj {
 public:
-  virtual json Inspect() = 0;
-  virtual string Type() = 0;
-  virtual string Value() = 0;
+  virtual void Inspect( ) = 0;
+  virtual string Type( ) = 0;
+  virtual string Value( ) = 0;
 };
 
 class Integer : public Obj {
@@ -335,23 +431,21 @@ public:
     mValue = value;
   } // Integer()
 
-  json Inspect();
-  string Type();
-  string Value();
+  void Inspect( ) ;
+  string Type( ) ;
+  string Value( ) ;
 };
 
-string Integer::Type() { return mType; } // Type()
+string Integer::Type( ) { return mType; } // Integer::Type()
 
-string Integer::Value() {
+string Integer::Value( ) {
   stringstream ss;
   ss << mValue;
-  string result = ss.str();
+  string result = ss.str( ) ;
   return result;
-} // Value
+} // Integer::Value()
 
-json Integer::Inspect() {
-  return { { "Type", mType }, { "Value", mValue } };
-} // Inspect()
+void Integer::Inspect( ) { cout << mValue << endl; } // Integer::Inspect()
 
 class Float : public Obj {
   string mType;
@@ -362,23 +456,24 @@ public:
     mType = tp;
     mValue = value;
   } // Float()
-  string Type();
-  string Value();
-  json Inspect();
+
+  string Type( ) ;
+  string Value( ) ;
+  void Inspect( ) ;
 };
 
-string Float::Type() { return mType; } // Type()
+string Float::Type( ) { return mType; } // Float::Type()
 
-string Float::Value() {
+string Float::Value( ) {
   stringstream ss;
   ss << mValue;
-  string res = ss.str();
+  string res = ss.str( ) ;
   return res;
-} // Value()
+} // Float::Value()
 
-json Float::Inspect() {
-  return { { "Type", mType }, { "Value", mValue } };
-} // Inspect()
+void Float::Inspect( ) { 
+  cout << fixed << setprecision( 3 ) << mValue << endl; 
+} // Float::Inspect()
 
 class Boolean : public Obj {
   string mType;
@@ -388,24 +483,27 @@ public:
   Boolean( bool value, string tp ) {
     mType = tp;
     mValue = value;
-  } // Float()
+  } // Boolean()
 
-  string Type();
-  string Value();
-  json Inspect();
+  string Type( ) ;
+  string Value( ) ;
+  void Inspect( ) ;
 };
 
-string Boolean::Type() { return mType; } // Type()
+string Boolean::Type( ) { return mType; } // Boolean::Type()
 
-string Boolean::Value() {
+string Boolean::Value( ) {
   if ( mValue == true )
     return "true";
   return "false";
-} // Value()
+} // Boolean::Value()
 
-json Boolean::Inspect() {
-  return { { "Type", mType }, { "Value", mValue } };
-} // Inspect()
+void Boolean::Inspect( ) {
+  if ( mValue == true )
+    cout << "true" << endl;
+  else
+    cout << "false" << endl;
+} // Boolean::Inspect()
 
 class String : public Obj {
   string mType;
@@ -416,93 +514,176 @@ public:
     mType = type;
     mValue = value;
   } // String()
-  json Inspect();
-  string Type();
-  string Value();
+
+  void Inspect( ) ;
+  string Type( ) ;
+  string Value( ) ;
 };
 
-string String::Type() { return mType; } // Type()
+string String::Type( ) { return mType; } // String::Type()
 
-string String::Value() { return mValue; } // Value()
+string String::Value( ) { return mValue; } // String::Value()
 
-json String::Inspect() {
-  return { { "Type", mType }, { "Value", mValue } };
-} // Inspect()
+void String::Inspect( ) { cout << mValue << endl; } // String::Inspect()
 
 class Null : public Obj {
   string mType;
 
 public:
-  Null() { mType = "NULL"; } // Null()
-  json Inspect();
-  string Type();
-  string Value();
+  Null( ) { mType = "NULL"; } // Null()
+
+  void Inspect( ) ;
+  string Type( ) ;
+  string Value( ) ;
 };
 
-string Null::Type() { return mType; } // Type()
+string Null::Type( ) { return mType; } // Null::Type()
 
-string Null::Value() { return "Null"; } // Value()
+string Null::Value( ) { return "Null"; } // Null::Value()
 
-json Null::Inspect() { return { { "Type", mType } }; } // Inspect()
+void Null::Inspect( ) { cout << "" << endl; } // Null::Inspect()
 
-//------------------Environment------------------------------------------
+// ------------------Environment------------------------------------------
 class Environment {
   map< string, Obj * > mVars;
 
 public:
-  Environment() {};
+  Environment( ) {
+  } // Environment()
 
-  void Set( string var, Obj *data );
-  Obj *Get( string var );
-  bool VarExist( string var );
+  void Set( string var, Obj *data ) ;
+  Obj *Get( string var ) ;
+  bool VarExist( string var ) ;
 };
 
 bool Environment::VarExist( string var ) {
-  if ( mVars.find( var ) != mVars.end() )
+  if ( mVars.find( var ) != mVars.end( ) )
     return true;
   return false;
-} // VarExist()
+} // Environment::VarExist()
 
 void Environment::Set( string var, Obj *data ) {
   if ( VarExist( var ) )
     mVars [ var ] = data;
   else
-    mVars.insert( { var, data } );
-} // Set()
+    mVars [ var ] = data;
+} // Environment::Set()
 
 Obj *Environment::Get( string var ) {
   Obj *obj = mVars [ var ];
   return obj;
-} // Get()
+} // Environment::Get()
 
-//------------------------------- Node ---------------------------
+// ------------------------------- Node ---------------------------
 
 class Node {
   string mType;
 
 public:
-  virtual json Print() = 0;
-  virtual string Type() = 0;
-  virtual string Value() = 0;
+  virtual void Print( ) = 0;
+  virtual string Type( ) = 0;
+  virtual string Value( ) = 0;
   virtual Obj *Eval( Environment *env ) = 0;
 };
 
-/*********************************************************************
- ************************** Our AST node type            *******************
- *********************************************************************/
+// ---------------------------- AST node type -------------------
 class Statement : public Node {
 public:
-  virtual void Stmt() = 0;
+  virtual void Stmt( ) = 0;
 }; // Statement
 
 class Expression : public Node {
 public:
-  virtual void Expr() = 0;
+  virtual void Expr( ) = 0;
 };
 
-/*********************************************************************
- **************************      Expression        *******************
- *********************************************************************/
+// 1 + 2 ; 2 + 4 ;
+// --------------------------- Expression -----------------------
+class BlockStatement : public Statement {
+  Token *mTok; // { token
+  string mType;
+  vector< Statement * > mStmts;
+
+public:
+  BlockStatement( Token *token ) {
+    mType = "Block Statements";
+    mTok = token;
+  } // BlockStatement()
+  
+  void Append( Statement *stmt ) ;
+
+  void Stmt( ) {
+  } // Stmt()
+
+  void Print( ) ;
+  string Type( ) ;
+  string Value( ) ;
+  Obj *Eval( Environment *env ) ;
+};
+
+void BlockStatement::Append( Statement *stmt ) {
+
+  mStmts.push_back( stmt ) ;
+
+} // BlockStatement::Append()
+
+void BlockStatement::Print( ) {
+
+  for ( int i = 0; i < mStmts.size( ) ; ++i ) {
+    mStmts [ i ]->Print( ) ;
+  } // for
+
+} // BlockStatement::Print()
+
+string BlockStatement::Type( ) { return mType; } // BlockStatement::Type()
+
+Obj *BlockStatement::Eval( Environment *env ) { return NULL; } // BlockStatement::Eval()
+
+string BlockStatement::Value( ) { return mTok->value; } // BlockStatement::Value()
+
+// If-else structure
+class ConditionalExpr : public Expression {
+  Token *mTok; // If token
+  string mType;
+  Expression *mCondition;
+  BlockStatement *mConsequence;
+  BlockStatement *mAlternative;
+
+public:
+  ConditionalExpr( Token *tok, Expression *cond, BlockStatement *consequence,
+                   BlockStatement *alternative ) {
+    mTok = tok;
+    mType = "Conditional Expression";
+    mCondition = cond;
+    mConsequence = consequence;
+    mAlternative = alternative;
+  } // ConditionalExpr()
+
+  void Expr( ) {
+  } // Expr() 
+
+  void Print( ) ;
+  string Type( ) ;
+  string Value( ) ;
+  Obj *Eval( Environment *env ) ;
+};
+
+void ConditionalExpr::Print( ) {
+  cout << " If ";
+  mCondition->Print( ) ;
+  mConsequence->Print( ) ;
+  if ( mAlternative != NULL ) {
+    cout << "Else", mConsequence->Print( ) ;
+  } // if
+
+} // ConditionalExpr::Print()
+
+string ConditionalExpr::Type( ) { return mType; } // ConditionalExpr::Type()
+
+string ConditionalExpr::Value( ) { return mTok->value; } // ConditionalExpr::Value()
+
+// TODO: Implement evaluation
+Obj *ConditionalExpr::Eval( Environment *env ) { return NULL; } // ConditionalExpr::Eval()
 
 class IntExpr : public Expression {
   Token *mTok;
@@ -514,34 +695,32 @@ public:
     mValue = value;
     mTok = tok;
     mType = "Integer";
-  } // NumberExpr()
+  } // IntExpr()
 
-  string Type();
-  json Print();
-  void Expr();
-  string Value();
-  Obj *Eval( Environment *env );
+  string Type( ) ;
+  void Print( ) ;
+  void Expr( ) ;
+  string Value( ) ;
+  Obj *Eval( Environment *env ) ;
 };
 
-string IntExpr::Type() { return mType; } // Type()
+string IntExpr::Type( ) { return mType; } // IntExpr::Type()
 
 Obj *IntExpr::Eval( Environment *env ) {
-  Obj *result = new Integer( mValue, mType );
+  Obj *result = new Integer( mValue, mType ) ;
   return result;
-} // Eval()
+} // IntExpr::Eval()
 
-string IntExpr::Value() {
+string IntExpr::Value( ) {
   stringstream ss;
   ss << mValue;
-  string str = ss.str();
+  string str = ss.str( ) ;
   return str;
-} // Value()
+} // IntExpr::Value()
 
-json IntExpr::Print() {
-  return { { "Type", mType }, { "Value", mValue } };
-} // Print()
+void IntExpr::Print( ) { cout << mTok->value; } // IntExpr::Print()
 
-void IntExpr::Expr() { cout << mValue << endl; } // Expr()
+void IntExpr::Expr( ) { cout << mValue << endl; } // IntExpr::Expr()
 
 class FloatExpr : public Expression {
   Token *mTok;
@@ -553,32 +732,37 @@ public:
     mValue = value;
     mTok = tok;
     mType = "Float";
-  } // NumberExpr()
+  } // FloatExpr()
 
-  string Type() { return mType; }
-  json Print();
-  void Expr();
-  string Value();
-  Obj *Eval( Environment *env );
+  string Type( ) { 
+    return mType; 
+  } // Type()
+
+  void Print( ) ;
+  void Expr( ) ;
+  string Value( ) ;
+  Obj *Eval( Environment *env ) ;
 };
 
 Obj *FloatExpr::Eval( Environment *env ) {
-  Obj *result = new Float( mValue, mType );
+  Obj *result = new Float( mValue, mType ) ;
   return result;
-} // Eval()
+} // FloatExpr::Eval()
 
-string FloatExpr::Value() {
+string FloatExpr::Value( ) {
   stringstream ss;
   ss << mValue;
-  string str = ss.str();
+  string str = ss.str( ) ;
   return str;
-} // Value()
+} // FloatExpr::Value()
 
-json FloatExpr::Print() {
-  return { { "Type", mType }, { "Value", mValue } };
-} // Print()
+void FloatExpr::Print( ) { 
+  cout << mTok->value; 
+} // FloatExpr::Print()
 
-void FloatExpr::Expr() { cout << mValue << endl; } // Expr()
+void FloatExpr::Expr( ) { 
+  cout << mValue << endl; 
+} // FloatExpr::Expr()
 
 class StringExpr : public Expression {
   string mValue;
@@ -588,27 +772,33 @@ public:
   StringExpr( string value ) {
     mValue = value;
     mType = "String";
-  } // StringExpr
+  } // StringExpr()
 
-  string Type() { return mType; }
-  void Expr();
-  json Print();
-  string Value();
-  Obj *Eval( Environment *env );
+  string Type( ) { 
+    return mType; 
+  } // Type()
+
+  void Expr( ) ;
+  void Print( ) ;
+  string Value( ) ;
+  Obj *Eval( Environment *env ) ;
 };
 
 Obj *StringExpr::Eval( Environment *env ) {
-  Obj *result = new String( mType, mValue );
+  Obj *result = new String( mType, mValue ) ;
   return result;
-} // Eval()
+} // StringExpr::Eval()
 
-string StringExpr::Value() { return mValue; } // Value()
+string StringExpr::Value( ) { 
+  return mValue; 
+} // StringExpr::Value()
 
-json StringExpr::Print() {
-  return { { "Type ", mType }, { "Value", mValue } };
-} // Print()
+void StringExpr::Print( ) { 
+  cout << mValue; 
+} // StringExpr::Print()
 
-void StringExpr::Expr() { } // expr
+void StringExpr::Expr( ) { 
+} // StringExpr::Expr()
 
 class BinExpr : public Expression {
   Expression *mLeft;
@@ -624,135 +814,126 @@ public:
     mType = "Binary Expression";
   } // BinExpr()
 
-  string Type() { return mType; }
-  void Expr();
-  json Print();
-  string Value() { return ""; } // Value()
-  Obj *Eval( Environment *env );
-  Obj *EvalCompare( Obj *left, Obj *right );
-  Obj *EvalArithmatic( Obj *left, Obj *right );
+  string Type( ) { 
+    return mType; 
+  } // Type()
+
+  string Value( ) { 
+    return ""; 
+  } // Value()
+
+  void Expr( ) ;
+  void Print( ) ;
+
+  Obj *Eval( Environment *env ) ;
+  Obj *EvalCompare( Obj *left, Obj *right ) ;
+  Obj *EvalArithmatic( Obj *left, Obj *right ) ;
+
 };
 
 Obj *BinExpr::EvalArithmatic( Obj *left, Obj *right ) {
   Obj *res = NULL;
-  string leftType = left->Type();
-  string rightType = right->Type();
-  string rightValue = right->Value();
-  string leftValue = left->Value();
+  string leftType = left->Type( ) ;
+  string rightType = right->Type( ) ;
+  string rightValue = right->Value( ) ;
+  string leftValue = left->Value( ) ;
 
   if ( leftType == "Float" || rightType == "Float" ) {
-    float left_value = GStringToFloat( leftValue );
-    float right_value = GStringToFloat( rightValue );
+    float left_value = GStringToFloat( leftValue ) ;
+    float right_value = GStringToFloat( rightValue ) ;
     float result;
     if ( mOp->type == PLUS )
       result = left_value + right_value;
+
     else if ( mOp->type == MINUS )
-      result = left_value + right_value;
+      result = left_value - right_value;
+
     else if ( mOp->type == DIVIDE )
       result = left_value / right_value;
+
     else if ( mOp->type == MULTIPLY )
       result = left_value * right_value;
-    res = new Float( result, "Float" );
+
+    res = new Float( result, "Float" ) ;
   } // if
 
   else {
-    int left_value = GStringToInt( leftValue );
-    int right_value = GStringToInt( rightValue );
+    int left_value = GStringToInt( leftValue ) ;
+    int right_value = GStringToInt( rightValue ) ;
     int result;
     if ( mOp->type == PLUS )
       result = left_value + right_value;
+
     else if ( mOp->type == MINUS )
       result = left_value - right_value;
+
     else if ( mOp->type == DIVIDE )
       result = left_value / right_value;
+
     else if ( mOp->type == MULTIPLY )
       result = left_value * right_value;
-    res = new Integer( result, "Integer" );
+
+    res = new Integer( result, "Integer" ) ;
   } // else
 
   return res;
-} // EvalCompare()
+} // BinExpr::EvalArithmatic()
 
 Obj *BinExpr::EvalCompare( Obj *left, Obj *right ) {
   Obj *res = NULL;
-  string leftType = left->Type();
-  string rightType = right->Type();
-  string rightValue = right->Value();
-  string leftValue = left->Value();
+  string leftType = left->Type( ) ;
+  string rightType = right->Type( ) ;
+  string rightValue = right->Value( ) ;
+  string leftValue = left->Value( ) ;
   bool result = true;
+  float epsilon = 0.0001;
+
   if ( leftType == "Float" || rightType == "Float" ) {
-    float left_value = GStringToFloat( leftValue );
-    float right_value = GStringToFloat( rightValue );
-    left_value = GRound( left_value );
-    right_value = GRound( right_value );
-
-    if ( mOp->type == LT ) {
-      if ( left_value >= right_value )
-        result = false;
-    } // if
-    else if ( mOp->type == GT ) {
-      if ( left_value <= right_value )
-        result = false;
-    } // else if
-
-    else if ( mOp->type == EQ ) {
-      if ( left_value < right_value || left_value > right_value )
-        result = false;
-    } // if
-
+    float left_value = GStringToFloat( leftValue ) ;
+    float right_value = GStringToFloat( rightValue ) ;  
+    result = GCompareFloats( left_value, right_value, epsilon, mOp -> type ); 
   } // if
 
   else {
-    int left_value = GStringToInt( leftValue );
-    int right_value = GStringToInt( rightValue );
-
-    if ( mOp->type == LT ) {
-      if ( left_value >= right_value )
-        result = false;
-    } // if
-    else if ( mOp->type == GT ) {
-      if ( left_value <= right_value )
-        result = false;
-    } // else if
-
-    else if ( mOp->type == EQ ) {
-      if ( left_value < right_value || left_value > right_value )
-        result = false;
-    } // if
-
+    int left_value = GStringToInt( leftValue ) ;
+    int right_value = GStringToInt( rightValue ) ;
+    result = GCompareInts( left_value, right_value, mOp -> type );
   } // else
 
-  res = new Boolean( result, "Boolean" );
+  res = new Boolean( result, "Boolean" ) ;
   return res;
-} // EvalCompare()
+} // BinExpr::EvalCompare() 
 
 Obj *BinExpr::Eval( Environment *env ) {
   Obj *result = NULL;
-  Obj *left = mLeft->Eval( env );
-  Obj *right = mRight->Eval( env );
+  Obj *left = mLeft->Eval( env ) ;
+  Obj *right = mRight->Eval( env ) ;
   if ( left == NULL || right == NULL )
     return NULL;
 
-  string leftType = left->Type();
-  string rightType = right->Type();
+  string leftType = left->Type( ) ;
+  string rightType = right->Type( ) ;
 
   if ( mOp->type == PLUS || mOp->type == MINUS || mOp->type == DIVIDE ||
        mOp->type == MULTIPLY )
-    result = EvalArithmatic( left, right );
-  else if ( mOp->type == LT || mOp->type == GT || mOp->type == EQ )
-    result = EvalCompare( left, right );
+    result = EvalArithmatic( left, right ) ;
+  else if ( mOp->type == LT || mOp->type == GT || 
+            mOp->type == EQ || mOp->type == GTEQ || 
+            mOp -> type == LTEQ )
+    result = EvalCompare( left, right ) ;
 
   return result;
-} // Eval()
+} // BinExpr::Eval()
 
-json BinExpr::Print() {
-  return { { "Type", mType },
-           { "Left", mLeft->Print() },
-           { "OP", mOp->value },
-           { "Right", mRight->Print() } };
-} // Print()
+void BinExpr::Print( ) {
+  cout << "(";
+  mLeft->Print( ) ;
+  cout << mOp->value;
+  mRight->Print( ) ;
+  cout << ")";
+} // BinExpr::Print()
 
-void BinExpr::Expr() { } // expr
+void BinExpr::Expr( ) { } // BinExpr::Expr()
 
 class SymbolExpression : public Expression {
   Token *mTok;
@@ -764,26 +945,39 @@ public:
     mValue = val;
     mTok = tok;
     mType = "Symbol Expression";
-  } // SymbolExpression
-  string Type() { return mType; }
-  void Expr() { } // Expr
-  json Print();
-  string Value() { return mValue; } // Value()
-  Obj *Eval( Environment *env );
+  } // SymbolExpression()
+
+  string Type( ) { 
+    return mType; 
+  } // Type()
+
+  string Value( ) { 
+    return mValue; 
+  } // Value()
+
+  void Expr( ) { 
+  } // Expr()
+
+  void Print( ) ;
+  
+  Obj *Eval( Environment *env ) ;
 };
 
 Obj *SymbolExpression::Eval( Environment *env ) {
   Obj *var = NULL;
+
   if ( env->VarExist( mValue ) )
-    var = env->Get( mValue );
+    var = env->Get( mValue ) ;
+
   else
     cout << "Undefined identifier : " << mValue << endl;
-  return var;
-} // Eval()
 
-json SymbolExpression::Print() {
-  return { { "Type", mType }, { "Value", mValue } };
-} // Print()
+  return var;
+} // SymbolExpression::Eval()
+
+void SymbolExpression::Print( ) { 
+  cout << mValue; 
+} // SymbolExpression::Print()
 
 class UnaryExpression : public Expression {
   Token *mOp;
@@ -796,73 +990,79 @@ public:
     mRhs = right;
     mType = "Unary expression";
   } // UnaryExpression()
-  string Type() { return mType; }
-  void Expr() { }
-  json Print();
-  string Value() { return ""; } // Value()
-  Obj *Eval( Environment *env );
-  Obj *EvalPlusMinus( Environment *env );
+
+  string Type( ) { 
+    return mType; 
+  } // Type()
+
+  string Value( ) { 
+    return ""; 
+  } // Value()
+
+  void Expr( ) { 
+  } // Expr()
+
+  void Print( ) ;
+  
+  Obj *Eval( Environment *env ) ;
+  Obj *EvalPlusMinus( Environment *env ) ;
 };
 
-// - 2 ;
-// + 2 ;
 Obj *UnaryExpression::EvalPlusMinus( Environment *env ) {
-  Obj *rhs = mRhs->Eval( env );
+  Obj *rhs = mRhs->Eval( env ) ;
   if ( rhs == NULL )
     return NULL;
 
   Obj *result = NULL;
-  string value = rhs->Value();
+  string value = rhs->Value( ) ;
   if ( mOp->type == PLUS ) {
-    if ( rhs->Type() == "Float" ) {
-      float num = GStringToFloat( value );
-      result = new Float( num, "Float" );
+    if ( rhs->Type( ) == "Float" ) {
+      float num = GStringToFloat( value ) ;
+      result = new Float( num, "Float" ) ;
     } // if
 
-    else if ( rhs->Type() == "Integer" ) {
-      int num = GStringToInt( value );
-      result = new Integer( num, "Integer" );
+    else if ( rhs->Type( ) == "Integer" ) {
+      int num = GStringToInt( value ) ;
+      result = new Integer( num, "Integer" ) ;
     } // else if
 
   } // if
 
   else if ( mOp->type == MINUS ) {
-    if ( rhs->Type() == "Float" ) {
-      float num = GStringToFloat( value );
+    if ( rhs->Type( ) == "Float" ) {
+      float num = GStringToFloat( value ) ;
       num = num * -1.0;
-      result = new Float( num, "Float" );
+      result = new Float( num, "Float" ) ;
     } // if
 
-    else if ( rhs->Type() == "Integer" ) {
-      int num = GStringToInt( value );
+    else if ( rhs->Type( ) == "Integer" ) {
+      int num = GStringToInt( value ) ;
       num = num * -1;
-      cout << num;
-      result = new Integer( num, "Integer" );
+      result = new Integer( num, "Integer" ) ;
     } // else if
+
   } // else if
 
   return result;
-} // UnaryExpression()
+} // UnaryExpression::EvalPlusMinus()
 
 Obj *UnaryExpression::Eval( Environment *env ) {
   Obj *result = NULL;
   if ( mOp->type == PLUS || mOp->type == MINUS ) {
-    cout << "Evaluate plus minus : ";
-    result = EvalPlusMinus( env );
+    result = EvalPlusMinus( env ) ;
   } // if
 
   return result;
-} // Eval()
+} // UnaryExpression::Eval()
 
-json UnaryExpression::Print() {
-  return { { "Type", mType },
-           { "Operator", mOp->value },
-           { "Right Expression", mRhs->Print() } };
-} // Print()
+void UnaryExpression::Print( ) {
+  cout << "( ";
+  cout << mOp->value;
+  mRhs->Print( ) ;
+  cout << ") ";
+} // UnaryExpression::Print()
 
-/*********************************************************************
- **************************      Statement         *******************
- *********************************************************************/
+// ------------------------------- Statements --------------------------
 class AssignmentStmt : public Statement {
   Token *mToken;           // The type token
   SymbolExpression *mName; // Variable name
@@ -877,77 +1077,92 @@ public:
     mType = "Assignment Expression";
   } // AssignmentStmt()
 
-  string Type() { return mType; }
-  void Stmt() {};
-  json Print();
-  string Value() { return ""; } // Value()
-  Obj *Eval( Environment *env );
+  string Type( ) { 
+    return mType; 
+  } // Type()
+
+  string Value( ) { 
+    return ""; 
+  } // Value()
+
+  void Stmt( ) {
+  } // Stmt()
+
+  void Print( ) ;
+  
+  Obj *Eval( Environment *env ) ;
 };
 
 Obj *AssignmentStmt::Eval( Environment *env ) {
-  Obj *rhs = mValue->Eval( env );
+  Obj *rhs = mValue->Eval( env ) ;
   if ( rhs == NULL )
     return NULL;
-  string varName = mName->Value();
-  env->Set( varName, rhs );
+  string varName = mName->Value( ) ;
+  env->Set( varName, rhs ) ;
   return rhs;
-} // Eval()
+} // AssignmentStmt::Eval()
 
-json AssignmentStmt::Print() {
-  return { { "Type", mType },
-           { "Var", mName->Print() },
-           { "Value", mValue->Print() } };
-} // AssignmentStmt
+void AssignmentStmt::Print( ) {
+  mName->Print( ) ;
+  cout << ":=";
+  mValue->Print( ) ;
+  cout << ";\n";
+} // AssignmentStmt::Print()
 
-/***************************** Statement
- * ***************************************/
 
 class Program : public Node {
 
 public:
   vector< Statement * > mBody;
 
-  void Append( Statement *stmt );
-  json Print();
-  string Type() { return "Program"; }
-  string Value() { return ""; } // Value()
-  Statement *Pop();
-  Obj *Eval( Environment *env );
+  string Type( ) { 
+    return "Program"; 
+  } // Type() 
+
+  string Value( ) { 
+    return ""; 
+  } // Value()
+
+  void Append( Statement *stmt ) ;
+  void Print( ) ;
+
+  Statement *Pop( ) ;
+  Obj *Eval( Environment *env ) ;
 };
 
 Obj *Program::Eval( Environment *env ) {
   Obj *obj = NULL;
   Statement *stmt = NULL;
-  while ( mBody.size() > 0 ) {
-    stmt = Pop();
-    obj = stmt->Eval( env );
+  while ( mBody.size( ) > 0 ) {
+    stmt = Pop( ) ;
+    obj = stmt->Eval( env ) ;
     if ( obj != NULL )
-      cout << obj->Inspect().dump( 4 ) << endl;
+      obj->Inspect( ) ;
     else
       return NULL;
   } // while
 
   return obj;
-} // Eval()
+} // Program::Eval()
 
-Statement *Program::Pop() {
+Statement *Program::Pop( ) {
   Statement *stmt = NULL;
-  if ( ! mBody.empty() ) {
-    stmt = mBody.front();
-    mBody.erase( mBody.begin() );
+  if ( ! mBody.empty( ) ) {
+    stmt = mBody.front( ) ;
+    mBody.erase( mBody.begin( ) ) ;
   } // if
 
   return stmt;
-} // Pop()
+} // Program::Pop()
 
-json Program::Print() {
-  json j;
-  for ( auto e : mBody )
-    j.push_back( e->Print() );
-  return j;
-} // Print()
+void Program::Print( ) {
+  for ( int i = 0; i < mBody.size( ) ; ++i )
+    mBody [ i ]->Print( ) ;
+} // Program::Print()
 
-void Program::Append( Statement *stmt ) { mBody.push_back( stmt ); } // Append()
+void Program::Append( Statement *stmt ) { 
+  mBody.push_back( stmt ) ; 
+} // Program::Append()
 
 class ExpressionStatement : public Statement {
   Token *mToken;
@@ -961,43 +1176,66 @@ public:
     mType = "Expression Statement";
   } // ExpressionStatement()
 
-  Expression *Expr() { return mExpr; } // Expr()
-  string Type() { return mType; }
-  void Stmt() { }
-  json Print();
-  string Value() { return ""; } // Value()
-  Obj *Eval( Environment *env );
+  Expression *Expr( ) { 
+    return mExpr; 
+  } // Expr()
+
+  string Type( ) { 
+    return mType; 
+  } // Type()
+
+  string Value( ) { 
+    return ""; 
+  } // Value()
+
+  void Stmt( ) {
+  } // Stmt()
+
+  void Print( ) ;
+  
+  Obj *Eval( Environment *env ) ;
 };
 
 Obj *ExpressionStatement::Eval( Environment *env ) {
-  Obj *obj = mExpr->Eval( env );
+  Obj *obj = mExpr->Eval( env ) ;
   return obj;
-} // Eval()
+} // ExpressionStatement::Eval()
 
-json ExpressionStatement::Print() { return mExpr->Print(); } // Print()
+void ExpressionStatement::Print( ) {
+  mExpr->Print( ) ;
+  cout << ";\n";
+} // ExpressionStatement::Print()
 
 class NullStatement : public Statement {
   string mType;
 
 public:
-  NullStatement() { mType = "Null Statement"; } // NullStatement()
-  string Type();
-  void Stmt() {};
-  json Print() { return { "Type", mType }; } // Print()
-  string Value() { return ""; }              // Value()
-  Obj *Eval( Environment *env );
+  NullStatement( ) { 
+    mType = "Null Statement"; 
+  } // NullStatement()
+
+  string Value( ) { 
+    return ""; 
+  } // Value()
+
+  void Stmt( ) {
+  } // Stmt()
+
+  string Type( ) ;
+  void Print( ) ;
+  Obj *Eval( Environment *env ) ;
 };
 
 Obj *NullStatement::Eval( Environment *env ) {
-  Obj *obj = new Null();
+  Obj *obj = new Null( ) ;
   return obj;
-} // Eval()
+} // NullStatement::Eval()
 
-string NullStatement::Type() { return mType; } // Type();
+string NullStatement::Type( ) { return mType; } // NullStatement::Type()
 
-/*********************************************************************
- **************************      Parser         *******************
- *********************************************************************/
+void NullStatement::Print( ) { cout << ";\n"; } // NullStatement::Print()
+
+// -------------------------- Parser ------------------------
 
 typedef enum {
   LOWEST,
@@ -1007,7 +1245,8 @@ typedef enum {
   PRODUCT,
   PREFIX,
   CALL
-} BindingPower;
+} BindingPower
+;
 
 typedef enum {
   IDENTIFER_PARSER,
@@ -1015,7 +1254,9 @@ typedef enum {
   PREFIX_PARSER,
   INFIX_PARSER,
   GROUP_PARSER,
-} Handler;
+  IF_PARSER
+} Handler
+;
 
 class Parser {
   Lexer *mLexer;
@@ -1027,344 +1268,434 @@ class Parser {
   map< TokenType, BindingPower > mPrecedences;
 
 public:
-  Parser() {
-    Mapper();
+  Parser( ) {
+    Mapper( ) ;
     mCurToken = NULL;
-  } // Parser
+  } // Parser()
 
-  void Init();
-  void Reset();
+  void Init( ) ;
+  void Reset( ) ;
   // Helper function
-  void Mapper();
-  void NextToken();
-  bool CurrentTokenIs( TokenType type );
-  bool PeekTokenIs( TokenType type );
-  bool ExpectPeek( TokenType type );
-  BindingPower PeekBP();
-  BindingPower CurrentBP();
-  vector< string > Errors();
-  void PeekError( Token *tok );
+  void Mapper( ) ;
+  void NextToken( ) ;
+  bool CurrentTokenIs( TokenType type ) ;
+  bool PeekTokenIs( TokenType type ) ;
+  bool ExpectPeek( TokenType type ) ;
+  BindingPower PeekBP( ) ;
+  BindingPower CurrentBP( ) ;
+  vector< string > Errors( ) ;
+  void PeekError( Token *tok ) ;
 
   // Parsing stmt
-  Statement *ParseExpressionStmt();
-  Statement *ParseStatement();
-  Statement *ParseAssignStmt();
-  Program *ParseProgram();
+  Statement *ParseExpressionStmt( ) ;
+  Statement *ParseStatement( ) ;
+  Statement *ParseAssignStmt( ) ;
+  Program *ParseProgram( ) ;
 
   // Parse expression
-  Expression *ParseGroup();
-  Expression *ParseNumber();
-  Expression *ParseIdentifier();
-  Expression *ParseExpression( BindingPower bp );
-  Expression *ParseInfix( Expression *left );
-  Expression *ParsePrefix();
+  BlockStatement *ParseBlockStatement( ) ;
+  Expression *ParseIf( ) ;
+  Expression *ParseGroup( ) ;
+  Expression *ParseNumber( ) ;
+  Expression *ParseIdentifier( ) ;
+  Expression *ParseExpression( BindingPower bp ) ;
+  Expression *ParseInfix( Expression *left ) ;
+  Expression *ParsePrefix( ) ;
 
   // Map register
-  Expression *PrefixExecutor();
-  Expression *InfixExecutor( Expression *left );
-  void RegisterPrefix( TokenType tp, Handler fn );
-  void RegisterInfix( TokenType tp, Handler fn );
+  Expression *PrefixExecutor( ) ;
+  Expression *InfixExecutor( Expression *left ) ;
+  void RegisterPrefix( TokenType tp, Handler fn ) ;
+  void RegisterInfix( TokenType tp, Handler fn ) ;
 };
 
-void Parser::NextToken() {
+void Parser::NextToken( ) {
   mCurToken = mPeekToken;
-  mPeekToken = mLexer->ReadNextToken();
-} // NextToken()
+  mPeekToken = mLexer->ReadNextToken( ) ;
+} // Parser::NextToken()
 
-void Parser::Reset() { mPeekToken->type = EOFF; } // Reset()
+void Parser::Reset( ) { 
+  mCurToken->value = '\0'; 
+  mCurToken->type = EOFF; 
+} // Parser::Reset()
 
-void Parser::Init() {
-  string str = "";
-  getline( cin, str );
-  mLexer = new Lexer( str );
-  mPeekToken = mLexer->ReadNextToken();
+void Parser::Init( ) {
+  string str = GetLine(); 
+  mLexer = new Lexer( str ) ;
+  mPeekToken = mLexer->ReadNextToken( ) ;
   while ( mPeekToken->type == EOFF ) {
-    getline( cin, str );
-    mLexer = new Lexer( str );
-    mPeekToken = mLexer->ReadNextToken();
-  } // NextToken()
-} // Init()
+    str = GetLine(); 
+    mLexer = new Lexer( str ) ;
+    mPeekToken = mLexer->ReadNextToken( ) ;
+  } // while
+
+} // Parser::Init()
 
 // Mapping the function with token type
-void Parser::Mapper() {
+void Parser::Mapper( ) {
 
   // Register the binding power of operation
-  mPrecedences.insert( { EQ, EQUAL } );
-  mPrecedences.insert( { NOT_EQ, EQUAL } );
-  mPrecedences.insert( { LT, LESSGREATER } );
-  mPrecedences.insert( { GT, LESSGREATER } );
-  mPrecedences.insert( { PLUS, SUM } );
-  mPrecedences.insert( { MINUS, SUM } );
-  mPrecedences.insert( { MULTIPLY, PRODUCT } );
-  mPrecedences.insert( { DIVIDE, PRODUCT } );
+  mPrecedences [ EQ ] = EQUAL;
+  mPrecedences [ EQ ] = EQUAL;
+  mPrecedences [ NOT_EQ ] = EQUAL;
+  mPrecedences [ LT ] = LESSGREATER;
+  mPrecedences [ GT ] = LESSGREATER;
+  mPrecedences [ GTEQ ] = LESSGREATER;
+  mPrecedences [ LTEQ ] = LESSGREATER;
+  mPrecedences [ PLUS ] = SUM;
+  mPrecedences [ MINUS ] = SUM;
+  mPrecedences [ MULTIPLY ] = PRODUCT;
+  mPrecedences [ DIVIDE ] = PRODUCT;
 
   // Mapping token type with their associated parser
-  RegisterPrefix( IDENT, IDENTIFER_PARSER );
-  RegisterPrefix( FLOAT, NUMBER_PARSER );
-  RegisterPrefix( INT, NUMBER_PARSER );
-  RegisterPrefix( MINUS, PREFIX_PARSER );
-  RegisterPrefix( PLUS, PREFIX_PARSER );
-  RegisterPrefix( LPAREN, GROUP_PARSER );
+  RegisterPrefix( IDENT, IDENTIFER_PARSER ) ;
+  RegisterPrefix( FLOAT, NUMBER_PARSER ) ;
+  RegisterPrefix( INT, NUMBER_PARSER ) ;
+  RegisterPrefix( MINUS, PREFIX_PARSER ) ;
+  RegisterPrefix( PLUS, PREFIX_PARSER ) ;
+  RegisterPrefix( KEY_IF, IF_PARSER ) ;
+  RegisterPrefix( LPAREN, GROUP_PARSER ) ;
 
-  RegisterInfix( PLUS, INFIX_PARSER );
-  RegisterInfix( MINUS, INFIX_PARSER );
-  RegisterInfix( MULTIPLY, INFIX_PARSER );
-  RegisterInfix( DIVIDE, INFIX_PARSER );
-  RegisterInfix( LT, INFIX_PARSER );
-  RegisterInfix( GT, INFIX_PARSER );
-  RegisterInfix( EQ, INFIX_PARSER );
-  RegisterInfix( NOT_EQ, INFIX_PARSER );
+  RegisterInfix( PLUS, INFIX_PARSER ) ;
+  RegisterInfix( MINUS, INFIX_PARSER ) ;
+  RegisterInfix( MULTIPLY, INFIX_PARSER ) ;
+  RegisterInfix( DIVIDE, INFIX_PARSER ) ;
+  RegisterInfix( LT, INFIX_PARSER ) ;
+  RegisterInfix( LTEQ, INFIX_PARSER ) ;
+  RegisterInfix( GT, INFIX_PARSER ) ;
+  RegisterInfix( GTEQ, INFIX_PARSER ) ;
+  RegisterInfix( EQ, INFIX_PARSER ) ;
+  RegisterInfix( NOT_EQ, INFIX_PARSER ) ;
 
-} // Mapper()
+} // Parser::Mapper()
 
-Expression *Parser::PrefixExecutor() {
+Expression *Parser::PrefixExecutor( ) {
 
   Expression *expr = NULL;
   Handler fn = mPrefixFNs [ mCurToken->type ];
   if ( fn == IDENTIFER_PARSER )
-    expr = ParseIdentifier();
+    expr = ParseIdentifier( ) ;
 
   else if ( fn == NUMBER_PARSER )
-    expr = ParseNumber();
+    expr = ParseNumber( ) ;
 
   else if ( fn == PREFIX_PARSER )
-    expr = ParsePrefix();
+    expr = ParsePrefix( ) ;
 
   else if ( fn == GROUP_PARSER )
-    expr = ParseGroup();
+    expr = ParseGroup( ) ;
+
+  else if ( fn == IF_PARSER )
+    expr = ParseIf( ) ;
 
   return expr;
-} // Executor()
+} // Parser::PrefixExecutor()
 
 Expression *Parser::InfixExecutor( Expression *left ) {
   Expression *expr = NULL;
   Handler fn = mInfixFNs [ mCurToken->type ];
   if ( fn == INFIX_PARSER )
-    expr = ParseInfix( left );
+    expr = ParseInfix( left ) ;
   return expr;
-} // Executor()
+} // Parser::InfixExecutor()
 
 void Parser::RegisterPrefix( TokenType tp, Handler fn ) {
   mPrefixFNs [ tp ] = fn;
-} // RegisterPrefix()
+} // Parser::RegisterPrefix()
 
 void Parser::RegisterInfix( TokenType tp, Handler fn ) {
   mInfixFNs [ tp ] = fn;
-} // RegisterInfix()
+} // Parser::RegisterInfix()
 
-BindingPower Parser::PeekBP() {
-  if ( mPrecedences.find( mPeekToken->type ) != mPrecedences.end() )
+BindingPower Parser::PeekBP( ) {
+  if ( mPrecedences.find( mPeekToken->type ) != mPrecedences.end( ) )
     return mPrecedences [ mPeekToken->type ];
 
   return LOWEST;
-} // PeekBP()
+} // Parser::PeekBP()
 
-BindingPower Parser::CurrentBP() {
-  if ( mPrecedences.find( mCurToken->type ) != mPrecedences.end() )
+BindingPower Parser::CurrentBP( ) {
+  if ( mPrecedences.find( mCurToken->type ) != mPrecedences.end( ) )
     return mPrecedences [ mCurToken->type ];
 
   return LOWEST;
-} // CurrentBP()
+} // Parser::CurrentBP()
 
 void Parser::PeekError( Token *tok ) {
-  string error = "Unexpected token :";
-  error += tok->value;
-  mErrs.push_back( error );
-} // PeekError()
+  string error = "Unexpected token : ";
+  error += "'" + tok->value + "'" ;
+  mErrs.push_back( error ) ;
+} // Parser::PeekError()
 
-vector< string > Parser::Errors() { return mErrs; } // Errors()
+vector< string > Parser::Errors( ) { return mErrs; } // Errors()
 
 bool Parser::CurrentTokenIs( TokenType tp ) {
   if ( tp == mCurToken->type )
     return true;
   return false;
-} // CurrentTokenIs()
+} // Parser::CurrentTokenIs()
 
 bool Parser::PeekTokenIs( TokenType tp ) {
   if ( tp == mPeekToken->type )
     return true;
   return false;
-} // PeekTokenIs()
+} // Parser::PeekTokenIs()
 
 // Check if Peek is matching the expected one
 // if correct move forward
 bool Parser::ExpectPeek( TokenType tp ) {
   if ( PeekTokenIs( tp ) ) {
-    NextToken();
+    NextToken( ) ;
     return true;
   } // if
 
   else {
-    PeekError( mPeekToken );
+    PeekError( mPeekToken ) ;
     return false;
   } // else
-} // ExpectPeek()
 
-Expression *Parser::ParseGroup() {
+} // Parser::ExpectPeek()
+
+BlockStatement *Parser::ParseBlockStatement( ) {
+  BlockStatement *block = new BlockStatement( mCurToken ) ;
+  if ( PeekTokenIs( EOFF ) )
+    Init( ) ;
+
+  NextToken( ) ;
+  while ( ! CurrentTokenIs( RBRACE ) && ! CurrentTokenIs( EOFF ) ) {
+    Statement *stmt = ParseStatement( ) ;
+    if ( stmt != NULL )
+      block->Append( stmt ) ;
+    NextToken( ) ;
+  } // while
+
+  return block;
+} // Parser::ParseBlockStatement()
+
+Expression *Parser::ParseIf( ) {
+  Expression *condition = NULL;
+  BlockStatement *consequence = NULL;
+  BlockStatement *alternative = NULL;
+  Expression *expr = NULL;
+
+  if ( ! ExpectPeek( LPAREN ) )
+    return NULL;
+
+  NextToken( ) ;
+  condition = ParseExpression( LOWEST ) ;
+
+  // Expecting ) afterward
+  if ( ! ExpectPeek( RPAREN ) )
+    return NULL;
+
+  // Expecting { afterward
+  if ( ! ExpectPeek( LBRACE ) )
+    return NULL;
+
+  consequence = ParseBlockStatement( ) ;
+
+  if ( PeekTokenIs( KEY_ELSE ) ) {
+    NextToken( ) ;
+    if ( ! ExpectPeek( LBRACE ) )
+      return NULL;
+
+    alternative = ParseBlockStatement( ) ;
+  } // if
+
+  expr = new ConditionalExpr( mCurToken, condition, consequence, alternative ) ;
+  return expr;
+} // Parser::ParseIf()
+
+Expression *Parser::ParseGroup( ) {
   if ( mPeekToken->type == EOFF )
-    Init();
-  NextToken();
-  Expression *expr = ParseExpression( LOWEST );
+    Init( ) ;
+  NextToken( ) ;
+  Expression *expr = ParseExpression( LOWEST ) ;
   if ( ! ExpectPeek( RPAREN ) )
     return NULL;
 
   return expr;
-} // ParseGroup()
+} // Parser::ParseGroup()
 
-Expression *Parser::ParseNumber() {
-  stringstream ss( mCurToken->value );
+Expression *Parser::ParseNumber( ) {
+  stringstream ss( mCurToken->value ) ;
   if ( mCurToken->type == INT ) {
     size_t num;
     ss >> num;
-    IntExpr *integer = new IntExpr( mCurToken, num );
+    IntExpr *integer = new IntExpr( mCurToken, num ) ;
     return integer;
   } // if
 
-  float num;
-  ss >> num;
-  FloatExpr *fp = new FloatExpr( mCurToken, num );
+  float num = GStringToFloat( mCurToken->value );
+  FloatExpr *fp = new FloatExpr( mCurToken, num ) ;
   return fp;
 
-} // ParseNumber()
+} // Parser::ParseNumber()
 
 Expression *Parser::ParseInfix( Expression *left ) {
   Token *op = mCurToken;
-  BindingPower bp = CurrentBP();
-  if ( mPeekToken->type == EOFF )
-    Init();
-  NextToken();
-  Expression *right = ParseExpression( bp );
-  BinExpr *infix = new BinExpr( left, op, right );
-  return infix;
-} // ParseInfix()
 
-Expression *Parser::ParsePrefix() {
+  BindingPower bp = CurrentBP( ) ;
+  if ( mPeekToken->type == EOFF )
+    Init( ) ;
+  NextToken( ) ;
+  Expression *right = ParseExpression( bp ) ;
+  if ( right == NULL )
+    return NULL;
+
+  BinExpr *infix = new BinExpr( left, op, right ) ;
+  return infix;
+} // Parser::ParseInfix()
+
+Expression *Parser::ParsePrefix( ) {
   Token *op = mCurToken;
   if ( mPeekToken->type == EOFF )
-    Init();
-  NextToken();
-  Expression *right = ParseExpression( PREFIX );
-  UnaryExpression *prefix = new UnaryExpression( op, right );
-  return prefix;
-} // ParsePrefix()
+    Init( ) ;
 
-Expression *Parser::ParseIdentifier() {
-  SymbolExpression *id = new SymbolExpression( mCurToken, mCurToken->value );
+  NextToken( ) ;
+  Expression *right = ParseExpression( PREFIX ) ;
+  if ( right == NULL )
+    return NULL;
+
+  UnaryExpression *prefix = new UnaryExpression( op, right ) ;
+  return prefix;
+} // Parser::ParsePrefix()
+
+Expression *Parser::ParseIdentifier( ) {
+  SymbolExpression *id = new SymbolExpression( mCurToken, mCurToken->value ) ;
   return id;
-} // ParseIdentifier()
+} // Parser::ParseIdentifier()
 
 Expression *Parser::ParseExpression( BindingPower bp ) {
 
-  if ( mPrefixFNs.find( mCurToken->type ) == mPrefixFNs.end() ) {
-    cout << "Unexpected token :" << mCurToken->value << endl;
+  if ( mCurToken->type == ILLEGAL )
+    return NULL;
+
+  if ( mPrefixFNs.find( mCurToken->type ) == mPrefixFNs.end( ) ) {
+    cout << "Unexpected token : '" << mCurToken->value << "'" << endl;
     return NULL;
   } // if
-  Expression *left = PrefixExecutor();
-  if ( PeekTokenIs( EOFF ) )
-    Init();
 
-  while ( ! PeekTokenIs( SEMICOLON ) && bp < PeekBP() ) {
-    if ( mInfixFNs.find( mPeekToken->type ) == mInfixFNs.end() ) {
-      cout << "Unexpected token :" << mPeekToken->value << endl;
-      return left;
+  Expression *left = PrefixExecutor( ) ;
+  if ( PeekTokenIs( EOFF ) )
+    Init( ) ;
+
+  if ( mPeekToken->type == ILLEGAL )
+    return NULL;
+
+  while ( ! PeekTokenIs( SEMICOLON ) && bp < PeekBP( ) ) {
+    if ( mInfixFNs.find( mPeekToken->type ) == mInfixFNs.end( ) ) {
+      cout << "Unexpected token : '" << mPeekToken->value << "'" << endl;
+      return NULL;
     } // if
-    NextToken();
-    left = InfixExecutor( left );
+
+    NextToken( ) ;
+    if ( mPeekToken->type == ILLEGAL )
+      return NULL;
+
+    left = InfixExecutor( left ) ;
   } // while
 
   return left;
-} // ParseExpression()
+} // Parser::ParseExpression()
 
-Statement *Parser::ParseExpressionStmt() {
+Statement *Parser::ParseExpressionStmt( ) {
+  ExpressionStatement *exprStmt = NULL;
+  Expression *expr = ParseExpression( LOWEST ) ;
 
-  Expression *expr = ParseExpression( LOWEST );
-  ExpressionStatement *exprStmt = new ExpressionStatement( expr, mCurToken );
+  if ( expr == NULL ) 
+    return NULL;
+  else 
+    exprStmt = new ExpressionStatement( expr, mCurToken ) ;
+
   if ( PeekTokenIs( SEMICOLON ) ) {
-    NextToken();
+    NextToken( ) ;
   } // if
+
   return exprStmt;
-} // ParseExpressionStmt()
+} // Parser::ParseExpressionStmt()
 
 // a := 1 + 3 ; -> Assign statement
-Statement *Parser::ParseAssignStmt() {
-  SymbolExpression *var = new SymbolExpression( mCurToken, mCurToken->value );
+Statement *Parser::ParseAssignStmt( ) {
+  SymbolExpression *var = new SymbolExpression( mCurToken, mCurToken->value ) ;
   AssignmentStmt *astmt = NULL;
 
   if ( ! ExpectPeek( ASSIGN ) )
     return NULL;
 
   else {
-    NextToken(); // Skip to expr
-    Expression *right = ParseExpression( LOWEST );
+    NextToken( ) ; // Skip to expr
+    Expression *right = ParseExpression( LOWEST ) ;
     if ( right == NULL )
       return NULL;
-    astmt = new AssignmentStmt( NULL, var, right );
+    astmt = new AssignmentStmt( NULL, var, right ) ;
   } // else
 
   if ( PeekTokenIs( SEMICOLON ) )
-    NextToken();
+    NextToken( ) ;
   return astmt;
 
-} // ParseAssignStmt()
+} // Parser::ParseAssignStmt()
 
-Statement *Parser::ParseStatement() {
+Statement *Parser::ParseStatement( ) {
   Statement *stmt = NULL;
   if ( CurrentTokenIs( IDENT ) && PeekTokenIs( ASSIGN ) )
-    stmt = ParseAssignStmt();
+    stmt = ParseAssignStmt( ) ;
+  /*
   else if ( CurrentTokenIs( SEMICOLON ) )
-    stmt = new NullStatement();
-  else if ( CurrentTokenIs( ILLEGAL ) )
-    Reset();
-  else
-    stmt = ParseExpressionStmt();
-  return stmt;
-} // ParseStatement()
+    stmt = new NullStatement( ) ;
+  */
 
-Program *Parser::ParseProgram() {
+  else if ( CurrentTokenIs( ILLEGAL ) )
+    Reset( ) ;
+  else
+    stmt = ParseExpressionStmt( ) ;
+
+  return stmt;
+} // Parser::ParseStatement()
+
+Program *Parser::ParseProgram( ) {
   // Needed object
-  Program *program = new Program();
+  Program *program = new Program( ) ;
   Obj *obj = NULL;
-  Environment *env = new Environment();
+  Environment *env = new Environment( ) ;
   // Input string
   string input = "";
-  getline( cin, input );
+  input = GetLine( ) ; 
 
+  cout << "Program starts..." << endl;
   cout << "> ";
-  Init();
-  NextToken(); // setting current token to peek token
+  Init( ) ;
+  NextToken( ) ; // setting current token to peek token
 
   while ( mCurToken->value != "quit" ) {
-    Statement *stmt = ParseStatement();
 
-    if ( stmt != NULL ) {
-      program->Append( stmt );
-      cout << stmt->Print().dump( 4 ) << endl;
-      obj = program->Eval( env ); // Return the last node's evaluation
-      if ( obj == NULL )
+    while ( mCurToken-> type != EOFF ) {
+      Statement *stmt = ParseStatement();
+
+      if ( stmt != NULL ) {
+        program -> Append( stmt );
+        obj = program -> Eval( env );
+        if ( obj == NULL )
+          Reset( );
+        NextToken();
+      } // if
+
+      else 
         Reset();
-      // program->Pop();
-    } // if
-
-    cout << "> ";
-    if ( mPeekToken->type != EOFF ) {
-      getline( cin, input );
-      mLexer->AppendStr( input );
-    } // if
-
-    else {
-      Init();
-    } // else
-
-    NextToken();
+      cout << "> ";
+    } // while
+    
+    Init( );
+    NextToken( ) ;
   } // while
+
+  cout << "Program exits..." << endl; 
   return program;
-} // Parser
+} // Parser::ParseProgram()
 
-/*********************************************************************
- * ************************main**************************************
- *********************************************************************/
-
-int main() {
-  Parser *parser = new Parser();
-  Program *program = parser->ParseProgram();
+// --------------- Main --------------------------
+int main( ) {
+  Parser *parser = new Parser( ) ;
+  Program *program = parser->ParseProgram( ) ;
 } // main()
