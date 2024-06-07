@@ -224,7 +224,7 @@ SpacesInParens:  Custom
 SpacesInParensOptions:
   InCStyleCasts:   true
   InConditionalStatements: true
-  InEmptyParentheses: false
+  InEmptyParentheses: true
   Other:           true
 SpacesInSquareBrackets: true
 Standard:        Latest
