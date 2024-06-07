@@ -1612,6 +1612,11 @@ Statement *Parser::ParseExpressionStmt( ) {
     NextToken( ) ;
   } // if
 
+  else {
+    cout << "Unexpected token : '" << mPeekToken -> value << "'" << endl; 
+    return NULL;
+  } // else 
+
   return exprStmt;
 } // Parser::ParseExpressionStmt()
 
