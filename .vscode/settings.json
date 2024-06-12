@@ -15,6 +15,11 @@
         "string": "c",
         "ratio": "cpp",
         "iomanip": "cpp",
-        "limits": "cpp"
+        "limits": "cpp",
+        "__debug": "c",
+        "__hash_table": "c",
+        "unordered_map": "c",
+        "map": "cpp",
+        "__tuple": "cpp"
     }
 }

@@ -1,0 +1,22 @@
+1
+3.0;
+3+4;
+3+4.0;
+valueA:=5;
+3+valueA*3-2;
+valueA:=4-1.0-1;
+3+valueA*3-2;
+3+valueA*3-2>7.00000001;
+3+valueA*3-2>6.998;
+;quit // since ';' is unexpected, the whole line is discarded
+salary:=2900+quit; // Comment here
+(())
+Quit quit
+2+3.4.5+6;
+20-30-((3));
+quit@#$//
+3+5;
+
+
+
+**;33-5*3             ;100*(30+20*(2+1)) ;5;-123*2+2*3 ;25 > 12+(8-3)*2 ;-100+5*10 <= 31-5*10 ;100 - 25*(-2+3) >= 72*(8-(3+4)) ; quit

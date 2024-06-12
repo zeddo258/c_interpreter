@@ -103,6 +103,10 @@ bool GCompareFloats( float left_value, float right_value, float epsilon, TokenTy
       result = true; 
   } // else if
 
+  else if ( type == NOT_EQ ) 
+    result = fabs( left_value - right_value ) >= epsilon;
+  
+
   return result;
 } // GCompareFloats()
 
@@ -119,6 +123,8 @@ bool GCompareInts( int left_value, int right_value, TokenType type ) {
     result = left_value <=  right_value;
   else if ( type == GTEQ ) 
     result = left_value >=  right_value;
+  else if ( type == NOT_EQ ) 
+    result = left_value != right_value;
 
   return result;
 } // GCompareInts()
@@ -339,6 +345,11 @@ Token *Lexer::ReadCompare( ) {
       ReadChar();
     } // if 
 
+    else if ( PeekChar() == '>' ) {
+      tok = SetNewToken( "!=", NOT_EQ );
+      ReadChar();
+    } // else if
+
     else
       tok = SetNewToken( "<", LT ) ;
   } // if
@@ -473,7 +484,7 @@ string Float::Value( ) {
 } // Float::Value()
 
 void Float::Inspect( ) { 
-  cout << fixed << setprecision( 3 ) << mValue << endl; 
+  cout << fixed << setprecision( 3 ) << GRound( mValue ) << endl; 
 } // Float::Inspect()
 
 class Boolean : public Obj {
@@ -928,7 +939,7 @@ Obj *BinExpr::Eval( Environment *env ) {
     result = EvalArithmatic( left, right ) ;
   else if ( mOp->type == LT || mOp->type == GT || 
             mOp->type == EQ || mOp->type == GTEQ || 
-            mOp -> type == LTEQ )
+            mOp -> type == LTEQ || mOp->type == NOT_EQ )
     result = EvalCompare( left, right ) ;
 
   return result;
@@ -1260,7 +1271,8 @@ typedef enum {
   PREFIX_PARSER,
   INFIX_PARSER,
   GROUP_PARSER,
-  IF_PARSER
+  IF_PARSER,
+  ILLEGAL_PARSER
 } Handler
 ;
 
@@ -1284,31 +1296,31 @@ public:
   // Helper function
   void Mapper( ) ;
   void NextToken( ) ;
-  Token* Pop( );
-  bool Expect( Token* tok, TokenType tp );
+  Token* Pop( ) ;
+  bool Expect( Token* tok, TokenType tp ) ;
   bool CurrentTokenIs( TokenType type ) ;
   BindingPower BPLookUp( Token* tok ) ;
   vector< string > Errors( ) ;
 
   // Parsing stmt
-  Statement *ParseExpressionStmt( ) ;
-  Statement *ParseStatement( ) ;
-  Statement *ParseAssignStmt( ) ;
+  Statement *ParseExpressionStmt( Environment *env ) ;
+  Statement *ParseStatement( Environment *env ) ;
+  Statement *ParseAssignStmt( Environment *env ) ;
   Program *ParseProgram( ) ;
 
   // Parse expression
   BlockStatement *ParseBlockStatement( ) ;
   Expression *ParseIf( ) ;
-  Expression *ParseGroup( ) ;
-  Expression *ParseNumber( ) ;
-  Expression *ParseIdentifier( ) ;
-  Expression *ParseExpression( BindingPower bp ) ;
-  Expression *ParseInfix( Expression *left ) ;
-  Expression *ParsePrefix( ) ;
+  Expression *ParseGroup( Environment *env ) ;
+  Expression *ParseNumber( Environment *env ) ;
+  Expression *ParseIdentifier( Environment *env ) ;
+  Expression *ParseExpression( BindingPower bp, Environment *env ) ;
+  Expression *ParseInfix( Expression *left, Environment *env ) ;
+  Expression *ParsePrefix( Environment *env ) ;
 
   // Map register
-  Expression *PrefixExecutor( ) ;
-  Expression *InfixExecutor( Expression *left ) ;
+  Expression *PrefixExecutor( Environment *env ) ;
+  Expression *InfixExecutor( Expression *left, Environment *env ) ;
   void RegisterPrefix( TokenType tp, Handler fn ) ;
   void RegisterInfix( TokenType tp, Handler fn ) ;
 };
@@ -1322,6 +1334,7 @@ Token *Parser::Pop( ) {
   } // if
 
   else cout << "Tokens list is empty \n";
+
   return top;
 } // Parser::Pop() 
 
@@ -1333,7 +1346,7 @@ bool Parser::Expect( Token* tok, TokenType tp ) {
     return false; 
   } // else
 
-} // Expect
+} // Parser::Expect()
 
 void Parser::NextToken( ) {
   if ( mCurToken -> type != SEMICOLON ) {
@@ -1349,6 +1362,7 @@ void Parser::Reset( ) {
   mCurToken->value = '\0'; 
   mCurToken->type = EOFF;
   mToks.clear();
+  mErrs.clear();
 } // Parser::Reset()
 
 void Parser::Init( ) {
@@ -1360,6 +1374,7 @@ void Parser::Init( ) {
     mLexer = new Lexer( str ) ;
     mCurToken = mLexer->ReadNextToken( ) ;
   } // while
+
   mToks.push_back( mCurToken );
 } // Parser::Init()
 
@@ -1387,6 +1402,7 @@ void Parser::Mapper( ) {
   RegisterPrefix( PLUS, PREFIX_PARSER ) ;
   RegisterPrefix( KEY_IF, IF_PARSER ) ;
   RegisterPrefix( LPAREN, GROUP_PARSER ) ;
+  RegisterPrefix( ILLEGAL, ILLEGAL_PARSER );
 
   RegisterInfix( PLUS, INFIX_PARSER ) ;
   RegisterInfix( MINUS, INFIX_PARSER ) ;
@@ -1398,36 +1414,49 @@ void Parser::Mapper( ) {
   RegisterInfix( GTEQ, INFIX_PARSER ) ;
   RegisterInfix( EQ, INFIX_PARSER ) ;
   RegisterInfix( NOT_EQ, INFIX_PARSER ) ;
+  RegisterInfix( ILLEGAL, ILLEGAL_PARSER );
 
 } // Parser::Mapper()
 
-Expression *Parser::PrefixExecutor( ) {
+Expression *Parser::PrefixExecutor( Environment *env ) {
 
   Expression *expr = NULL;
   Handler fn = mPrefixFNs [ mToks[0] -> type ];
 
   if ( fn == IDENTIFER_PARSER )
-    expr = ParseIdentifier( ) ;
+    expr = ParseIdentifier( env ) ;
 
   else if ( fn == NUMBER_PARSER )
-    expr = ParseNumber( ) ;
+    expr = ParseNumber( env ) ;
 
-  else if ( fn == PREFIX_PARSER )
-    expr = ParsePrefix( ) ;
+  else if ( fn == PREFIX_PARSER ) {
+    expr = ParsePrefix( env ) ;
+    return expr;
+  } // else if 
 
   else if ( fn == GROUP_PARSER )
-    expr = ParseGroup( ); 
+    expr = ParseGroup( env ); 
 
-  Pop();
-  NextToken();
+  else if ( fn == ILLEGAL_PARSER )
+    return NULL;
+
+  if ( expr != NULL ) {
+    Pop();
+    NextToken();
+  } // if
+
   return expr;
 } // Parser::PrefixExecutor()
 
-Expression *Parser::InfixExecutor( Expression *left ) {
+Expression *Parser::InfixExecutor( Expression *left, Environment *env ) {
   Expression *expr = NULL;
   Handler fn = mInfixFNs [ mToks[0] -> type ];
   if ( fn == INFIX_PARSER )
-    expr = ParseInfix( left ) ;
+    expr = ParseInfix( left, env ) ;
+
+  else if ( fn == ILLEGAL_PARSER )
+    return NULL;
+
   return expr;
 } // Parser::InfixExecutor()
 
@@ -1445,7 +1474,7 @@ BindingPower Parser::BPLookUp( Token* tok ) {
     return mPrecedences [ tok->type ];
 
   return LOWEST;
-} // Parser::CurrentBP()
+} // Parser::BPLookUp()
 
 
 bool Parser::CurrentTokenIs( TokenType tp ) {
@@ -1455,16 +1484,23 @@ bool Parser::CurrentTokenIs( TokenType tp ) {
   return false;
 } // Parser::CurrentTokenIs()
 
-Expression* Parser::ParseGroup() {
+Expression* Parser::ParseGroup( Environment *env ) {
+  Pop();
   NextToken();
-  Expression *expr = ParseExpression( LOWEST );
-  if ( expr == NULL || !CurrentTokenIs( RPAREN ) )
-    return NULL;
+  Expression *expr = ParseExpression( LOWEST, env );
+  if ( !CurrentTokenIs( RPAREN ) ) {
+    string err = "Unexpected token : '" + mToks[0] -> value + "'\n";
+    mErrs.push_back( err ); 
+    return NULL; 
+  } // if
 
+  if ( expr == NULL )
+    return NULL;
+    
   return expr;
 } // Parser::ParseGroup()
 
-Expression *Parser::ParseNumber( ) {
+Expression *Parser::ParseNumber( Environment *env ) {
   stringstream ss( mToks[0]->value ) ;
   if ( mToks[0]->type == INT ) {
     size_t num;
@@ -1480,99 +1516,165 @@ Expression *Parser::ParseNumber( ) {
 } // Parser::ParseNumber()
 
 
-Expression *Parser::ParsePrefix( ) {
-  Token *op = mCurToken;
-
+Expression *Parser::ParsePrefix( Environment *env ) {
+  Token *op = Pop();
   NextToken( ) ;
-  Expression *right = ParseExpression( PREFIX ) ;
-  if ( right == NULL )
+
+  if ( mToks[0] -> type == ILLEGAL ) {
+    string err = "Unrecognized token with first char : '" + mToks[0] -> value + "'\n";
+    mErrs.push_back( err ); 
+    return NULL; 
+  } // if
+
+  if ( mToks[0] -> type != INT && mToks[0] -> type != FLOAT ) {
+    string err = "Unexpected token : '" + mToks[0] -> value + "'\n";
+    mErrs.push_back( err ); 
     return NULL;
+  } // if
+
+  Expression *right = ParseExpression( PREFIX, env ) ;
+  if ( right == NULL  )
+    return NULL;
+
 
   UnaryExpression *prefix = new UnaryExpression( op, right ) ;
   return prefix;
 } // Parser::ParsePrefix()
 
-Expression *Parser::ParseInfix( Expression *left ) {
+Expression *Parser::ParseInfix( Expression *left, Environment *env ) {
   BinExpr* infix = NULL;
   Token *op = Pop(); 
   BindingPower bp = BPLookUp( op );
   NextToken();
-  Expression* right = ParseExpression( bp );
+  Expression* right = ParseExpression( bp, env );
   if ( right != NULL ) 
     infix = new BinExpr( left, op, right ); 
 
   return infix;
 } // Parser::ParseInfix()
 
-Expression *Parser::ParseIdentifier( ) {
+Expression *Parser::ParseIdentifier( Environment *env ) {
+
+  if ( env -> VarExist( mToks[0]->value ) == false ) {
+    string err = "Undefined identifier : '" + mToks[0] -> value + "'\n";
+    mErrs.push_back( err ); 
+    return NULL;
+  } // if
+
   SymbolExpression *id = new SymbolExpression( mToks[0], mToks[0]->value ) ;
   return id;
 } // Parser::ParseIdentifier()
 
-Expression *Parser::ParseExpression( BindingPower bp ) {
+Expression *Parser::ParseExpression( BindingPower bp, Environment *env ) {
+  // At first enter
+  if ( mToks[0] -> type == ILLEGAL ) {
+    string err = "Unrecognized token with first char : '" + mToks[0] -> value + "'\n";
+    mErrs.push_back( err ); 
+    return NULL; 
+  } // if
+
   if ( mPrefixFNs.find( mToks[0] -> type ) == mPrefixFNs.end() ) {
-    cout << "Unexpected token :'" << mToks[0] -> value << "'\n";
+    string err = "Unexpected token : '" + mToks[0] -> value + "'\n";
+    mErrs.push_back( err ); 
     return NULL;
   } // if
 
-  Expression *left = PrefixExecutor( );
-
-  if ( mInfixFNs.find( mToks[0] -> type ) == mInfixFNs.end() ) {
-    cout << "Unexpected token :'" << mToks[0] -> value << "'\n";
+  Expression *left = PrefixExecutor( env );
+  if ( left == NULL )
     return NULL;
-  } // if
+    
+  if ( mToks[0] -> type == ILLEGAL ) {
+    string err = "Unrecognized token with first char : '" + mToks[0] -> value + "'\n";
+    mErrs.push_back( err ); 
+    return NULL;
+  } // if 
+
+
 
   while ( mToks[0] -> type != SEMICOLON && bp < BPLookUp( mToks[0] ) ) {
     if ( mInfixFNs.find( mToks[0] -> type ) == mInfixFNs.end() ) {
-      cout << "Unexpected token :'" << mToks[0] -> value << "'\n";
+      string err = "Unexpected token : '" + mToks[0] -> value + "'\n";
+      mErrs.push_back( err ); 
       return NULL;
     } // if
+      
+    left = InfixExecutor( left, env );
+    if ( mToks[0] -> type == ILLEGAL ) {
+      string err = "Unrecognized token with first char : '" + mToks[0] -> value + "'\n";
+      mErrs.push_back( err ); 
+      return NULL;
+    } // if 
 
-    left = InfixExecutor( left );
+    if ( left == NULL )
+      return NULL;
   } // while
 
   return left;
 } // Parser::ParseExpression() 
 
-Statement* Parser::ParseExpressionStmt() {
+Statement* Parser::ParseExpressionStmt( Environment *env ) {
   ExpressionStatement *exprStmt = NULL;
   Token *start = mToks[0]; 
-  Expression *expr = ParseExpression( LOWEST ); 
-  Token *end = Pop();
-  if ( expr == NULL || end -> type != SEMICOLON )
+  Expression *expr = ParseExpression( LOWEST, env ); 
+  if ( expr == NULL  )
     return NULL;
 
   exprStmt = new ExpressionStatement( expr, start );
   return exprStmt;
 } // Parser::ParseExpressionStmt()
 
-Statement *Parser::ParseAssignStmt( ) {
+Statement *Parser::ParseAssignStmt( Environment *env ) {
   SymbolExpression *var = new SymbolExpression( mToks[0], mToks[0] -> value ) ;
   AssignmentStmt *astmt = NULL;
   Pop();
   Pop();
   NextToken();
-  Expression *right = ParseExpression( LOWEST ) ;
-  Token* end = Pop();
-
-  if ( right == NULL || end -> type != SEMICOLON )
+  Expression *right = ParseExpression( LOWEST, env ) ;
+  if ( right == NULL  )
     return NULL;
+
 
   astmt = new AssignmentStmt( NULL, var, right ) ;
   return astmt;
 } // Parser::ParseAssignStmt()
 
-Statement *Parser::ParseStatement( ) {
+Statement *Parser::ParseStatement( Environment *env ) {
   Statement* stmt = NULL;
   if ( mToks[0] -> type == IDENT ) {
     NextToken();
-    if ( mToks[1] -> type != ASSIGN )
-      stmt = ParseExpressionStmt();
+    TokenType tp = mToks[1] -> type;
+
+    if ( tp == ILLEGAL ) {
+      string err = "Unrecognized token with first char : '" + mToks[1] -> value + "'\n";
+      mErrs.push_back( err );
+      return NULL;
+    } // if
+
+    if ( tp != ASSIGN && tp != IDENT && tp != FLOAT && tp != INT )
+      stmt = ParseExpressionStmt( env );
+
+    else if ( tp != ASSIGN && mInfixFNs.find( tp ) ==  mInfixFNs.end() ) {
+      string err = "Unexpected token : '" + mToks[1] -> value + "'\n";
+      mErrs.push_back( err );
+      return NULL;
+    } // else if
+
     else
-      stmt = ParseAssignStmt();
+      stmt = ParseAssignStmt( env );
   } // if
   else
-    stmt = ParseExpressionStmt();
+    stmt = ParseExpressionStmt( env );
+  
+  if ( stmt == NULL )
+    return NULL;
+
+  Token* end = Pop();
+  if ( end -> type != SEMICOLON ) {
+    string err = "Unexpected token : '" + end -> value + "'\n";
+    mErrs.push_back( err );
+    return NULL;
+  } // if
+
   return stmt;
 } // Parser::ParseStatement()
 
@@ -1585,27 +1687,43 @@ Program *Parser::ParseProgram( ) {
   string input = "";
   input = GetLine( ) ; 
 
+  
+
   cout << "Program starts..." << endl;
   cout << "> ";
+
   Init( ) ;
+
+  /*
+  if ( input == "2" )
+    mCurToken -> value = "quit";
+  */
+
   while ( mCurToken->value != "quit" ) {
 
-    while ( mCurToken-> type != EOFF ) {
-      Statement *stmt = ParseStatement();
+    while ( mCurToken-> type != EOFF  && mCurToken -> value != "quit" ) {
+      Statement *stmt = ParseStatement( env );
       if ( stmt != NULL ) {
         program -> Append( stmt );
         obj = program -> Eval( env );
         if ( obj == NULL )
           Reset();
         mCurToken = mLexer -> ReadNextToken();
+        if ( mCurToken -> type != EOFF )
+          mToks.push_back( mCurToken ); 
       } // if
 
-      else
+      else {
+        if ( mErrs.size() > 0 )
+          cout << mErrs[0];
         Reset();
+      } // else 
+
       cout << "> ";
     } // while
-
-    Init( );
+    
+    if ( mCurToken -> value != "quit" ) 
+      Init( );
   } // while
 
   cout << "Program exits..." << endl; 
