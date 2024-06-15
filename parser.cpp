@@ -238,12 +238,11 @@ Token* Lexer::ReadAnd( ) {
 Token *Lexer::ReadString() {
   string str = "";
   ReadChar();
-  while ( mCh != '\"' ) {
+  while ( mCh != '"' ) {
     str += mCh;
     ReadChar( );
   } // while
 
-  ReadChar();
   Token* tok = SetNewToken( str, STRING );
   return tok;
 } // Lexer::ReadString()
@@ -1134,7 +1133,22 @@ Obj *BinExpr::EvalArithmatic( Obj *left, Obj *right ) {
   string rightValue = right->Value( ) ;
   string leftValue = left->Value( ) ;
 
-  if ( leftType == "Float" || rightType == "Float" ) {
+  if ( leftType == "String" || rightType == "String" ) {
+    string result;
+    if ( mOp->type == PLUS )
+      result = leftValue + rightValue;
+
+    else { 
+      cout << "Incompatible type between " 
+           <<  leftType << " and " << rightType << endl; 
+      return NULL;
+    } // else 
+  
+    res = new String( "String", result ) ;
+  } // if
+
+
+  else if ( leftType == "Float" || rightType == "Float" ) {
     float left_value = GStringToFloat( leftValue ) ;
     float right_value = GStringToFloat( rightValue ) ;
     float result;
@@ -1168,6 +1182,15 @@ Obj *BinExpr::EvalArithmatic( Obj *left, Obj *right ) {
 
     else if ( mOp->type == MULTIPLY )
       result = left_value * right_value;
+
+    else if ( mOp -> type == MODULO )
+      result = left_value % right_value;
+
+    else if ( mOp -> type == RIGHT_SHIFT )
+      result = left_value >> right_value;
+  
+    else if ( mOp -> type == LEFT_SHIFT )
+      result = left_value << right_value;
 
     res = new Integer( result, "Integer" ) ;
   } // else
@@ -1219,7 +1242,7 @@ Obj *BinExpr::Eval( Environment *env ) {
   string rightType = right->Type( ) ;
 
   if ( mOp->type == PLUS || mOp->type == MINUS || mOp->type == DIVIDE ||
-       mOp->type == MULTIPLY )
+       mOp->type == MULTIPLY || mOp->type == LEFT_SHIFT || mOp -> type == RIGHT_SHIFT )
     result = EvalArithmatic( left, right ) ;
   else if ( mOp->type == LT || mOp->type == GT || 
             mOp->type == EQ || mOp->type == GTEQ || 
@@ -1469,7 +1492,6 @@ void Function::Inspect() {
 
 string Function::Value() {
   string str = mKind -> value;
-  str += " " + mName -> Value();
   return str;
 } // Function::Value()
 
@@ -1622,6 +1644,14 @@ Obj* CallExpression::ApplyFunction( Obj* function, vector< Obj* > args ) {
   Environment *extendEnv = ExtendFunctionEnv( function, args );
   // Evaluate the block statement
   Obj* blockStmt = function -> Eval( extendEnv );
+  if ( blockStmt -> Type() == "Return" ) {
+
+    if ( mFunction -> Value() == "void" ) {
+      cout << "Error : Void function should not return a value." << endl;
+      return NULL; 
+    } // if 
+
+  } // if
   return blockStmt;
 } // CallExpression::ApplyFunction() 
 
@@ -1690,7 +1720,7 @@ Obj *DeclarationStatement::Eval( Environment *env ) {
   else if ( tp == KEY_FLOAT )
     obj = new Float( 0.0, "FLoat" );
   else if ( tp == KEY_STRING ) 
-    obj = new String( "", "String" );
+    obj = new String( "String", "" );
 
   for ( int i = 0; i < mIds.size(); ++i )
     env -> Set( mIds[i] -> Value(), obj );
@@ -1824,7 +1854,7 @@ void ReturnStmt::Print() {
 
 // ------------------------------- Statements --------------------------
 class AssignmentExpr : public Expression {
-  Token *mToken;           // The first token
+  Token *mToken; // Operator token 
   Expression *mName; // Variable name
   Expression *mValue;
   string mType;
@@ -1849,17 +1879,93 @@ public:
   } // Stmt()
 
   void Print( ) ;
-  
+
   Obj *Eval( Environment *env ) ;
+  Obj *EvalFloat( string var, string rhs ) ;
+  Obj *EvalInt( string var, string rhs ) ;
+  Obj *EvalString( string var, string rhs ) ;
 };
+
+Obj *AssignmentExpr::EvalInt( string var, string rhs ) {
+  int left = GStringToFloat( var );
+  int right = GStringToFloat( var );
+  if ( mToken -> type == PLUS_EQ )
+    left += right;
+  else if ( mToken -> type == MINUS_EQ )
+    left -= right;
+  else if ( mToken -> type == DIVIDE_EQ )
+    left /= right;
+  else if ( mToken -> type == MULTI_EQ ) 
+    left *= right;
+
+  Obj *obj = new Integer( left,"Integer" );
+  return obj;
+} // AssignmenExpr::EvalFloat()
+
+Obj *AssignmentExpr::EvalString( string var, string rhs ) {
+  if ( mToken -> type == PLUS_EQ )
+    var += rhs ;
+
+  else {
+    cout << "Incorrect operation on string\n"; 
+    return NULL;
+  } // else
+
+  Obj *obj = new String( "String", var );
+  return obj;
+} // AssignmenExpr::EvalFloat()
+
+Obj *AssignmentExpr::EvalFloat( string var, string rhs ) {
+  float left = GStringToFloat( var );
+  float right = GStringToFloat( var );
+  if ( mToken -> type == PLUS_EQ )
+    left += right;
+  else if ( mToken -> type == MINUS_EQ )
+    left -= right;
+  else if ( mToken -> type == DIVIDE_EQ )
+    left /= right;
+  else if ( mToken -> type == MULTI_EQ ) 
+    left *= right;
+
+  Obj *obj = new Float( left,"Float" );
+  return obj;
+} // AssignmenExpr::EvalFloat()
 
 Obj *AssignmentExpr::Eval( Environment *env ) {
   Obj *rhs = mValue->Eval( env ) ;
   if ( rhs == NULL )
     return NULL;
+
   string varName = mName->Value( ) ;
-  env->Set( varName, rhs ) ;
-  return rhs;
+  Obj *var = env -> Get( varName );
+
+  string var_value = var -> Value( );
+  string rhs_value = rhs -> Value( );
+
+  if ( mToken -> type == ASSIGN ) {
+    env -> Set( varName, rhs );
+    var = env -> Get( varName );
+  } // if
+  
+  else { 
+    Obj *result = NULL;
+    if ( var -> Type() == "Float" || rhs -> Type() == "Float" ) 
+      result = EvalFloat( var_value, rhs_value );
+    else if ( var -> Type() == "String" && rhs -> Type() == "String" ) 
+      result = EvalString( var_value, rhs_value );
+    else if ( var -> Type() == "Integer" && rhs -> Type() == "Integer" )
+      result = EvalInt( var_value, rhs_value );
+    else {
+      cout << "Invalid operation between : " << var -> Type() << " and "
+           << rhs -> Type();
+      return NULL;
+    } // else
+
+    env -> Set( varName,result ); 
+    var = env -> Get( varName ); 
+  } // else
+  
+  return var;
 } // AssignmentExpr::Eval()
 
 void AssignmentExpr::Print( ) {
@@ -2004,7 +2110,10 @@ typedef enum {
   EQUAL,
   LESSGREATER,
   SUM,
+  SHIFT,
   PRODUCT,
+  ANDBP,
+  ORBP,
   PREFIX,
   CALL,
 } BindingPower
@@ -2019,7 +2128,8 @@ typedef enum {
   GROUP_PARSER,
   IF_PARSER,
   ILLEGAL_PARSER,
-  CALL_PARSER
+  CALL_PARSER,
+  STRING_PARSER
 } Handler
 ;
 
@@ -2066,6 +2176,7 @@ public:
   vector <Parameter *> ParseParameter( ); 
   Expression *ParseGroup( Environment *env ) ;
   Expression *ParseNumber( Environment *env ) ;
+  Expression *ParseString( Environment *env ) ;
   Expression *ParseIdentifier( Environment *env ) ;
   Expression *ParseExpression( BindingPower bp, Environment *env ) ;
   Expression *ParseInfix( Expression *left, Environment *env ) ;
@@ -2149,12 +2260,15 @@ void Parser::Mapper( ) {
   mPrecedences [ MINUS ] = SUM;
   mPrecedences [ MULTIPLY ] = PRODUCT;
   mPrecedences [ DIVIDE ] = PRODUCT;
+  mPrecedences [ MODULO ] = SHIFT;
   mPrecedences [ ASSIGN ] = SET; 
   mPrecedences [ DIVIDE_EQ ] = SET;
   mPrecedences [ MULTI_EQ ] = SET;
   mPrecedences [ PLUS_EQ ] = SET;
   mPrecedences [ MINUS_EQ ] = SET;
   mPrecedences [ LPAREN ] = CALL;
+  mPrecedences [ RIGHT_SHIFT ] = SHIFT;
+  mPrecedences [ LEFT_SHIFT ] = SHIFT;
 
   // Mapping token type with their associated parser
   RegisterPrefix( IDENT, IDENTIFER_PARSER ) ;
@@ -2167,12 +2281,17 @@ void Parser::Mapper( ) {
   RegisterPrefix( ILLEGAL, ILLEGAL_PARSER );
   RegisterPrefix( PLUSPLUS, IDENTIFER_PARSER );
   RegisterPrefix( MINUSMINUS, IDENTIFER_PARSER );
+  RegisterPrefix( STRING, STRING_PARSER );
 
   RegisterInfix( MINUS_EQ, ASSIGNMENT_PARSER );
   RegisterInfix( DIVIDE_EQ, ASSIGNMENT_PARSER );
   RegisterInfix( MULTI_EQ, ASSIGNMENT_PARSER );
   RegisterInfix( PLUS_EQ, ASSIGNMENT_PARSER );
   RegisterInfix( ASSIGN, ASSIGNMENT_PARSER );
+
+  RegisterInfix( MODULO, INFIX_PARSER );
+  RegisterInfix( LEFT_SHIFT, INFIX_PARSER );
+  RegisterInfix( RIGHT_SHIFT, INFIX_PARSER );
   RegisterInfix( PLUS, INFIX_PARSER ) ;
   RegisterInfix( MINUS, INFIX_PARSER ) ;
   RegisterInfix( MULTIPLY, INFIX_PARSER ) ;
@@ -2208,6 +2327,9 @@ Expression *Parser::PrefixExecutor( Environment *env ) {
 
   else if ( fn == GROUP_PARSER )
     expr = ParseGroup( env ); 
+
+  else if ( fn == STRING_PARSER )
+    expr = ParseString( env );
 
   else if ( fn == ILLEGAL_PARSER )
     return NULL;
@@ -2311,6 +2433,12 @@ Expression* Parser::ParseGroup( Environment *env ) {
 
   return expr;
 } // Parser::ParseGroup()
+
+Expression *Parser::ParseString( Environment *env ) {
+  string str = mToks[0] -> value;
+  StringExpr *expr = new StringExpr( str );
+  return expr;
+} // Parser::ParseString()
 
 Expression *Parser::ParseNumber( Environment *env ) {
   stringstream ss( mToks[0]->value ) ;
@@ -2556,7 +2684,7 @@ Expression *Parser::ParseAssignExpr( Expression* left, Environment *env ) {
   if ( rhs == NULL )
     return NULL;
 
-  Expression *expr = new AssignmentExpr( NULL, left, rhs );
+  Expression *expr = new AssignmentExpr( op, left, rhs );
   return expr;
 } // Parser::ParseAssignStmt()
 
@@ -2736,6 +2864,7 @@ Program *Parser::ParseProgram( ) {
     while ( mCurToken-> type != EOFF  && mCurToken -> value != "quit" ) {
       Statement *stmt = ParseStatement( env );
       if ( stmt != NULL ) {
+        stmt -> Print();
         program -> Append( stmt );
         obj = program -> Eval( env );
         if ( obj == NULL )
