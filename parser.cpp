@@ -31,6 +31,8 @@ typedef enum {
   RPAREN,
   LBRACE,
   RBRACE,
+  LBRACKET,
+  RBRACKET,
   MODULO,
   LT,
   GT,
@@ -51,9 +53,13 @@ typedef enum {
   MULTI_EQ, 
   DIVIDE_EQ,
   STRING,
-
+  CHAR,
+  COUT,
+  CIN,
 
   // Keywords
+  KEY_TRUE,
+  KEY_FALSE,
   KEY_IF,
   KEY_ELSE,
   KEY_ELIF,
@@ -180,7 +186,9 @@ public:
   Token *ReadAnd( );
   Token *ReadString( );
   Token *ReadCompare( ) ;
+  Token *ReadCharacter( );
   Token *ReadOr( ); 
+  Token *ReadBracket( );
   char PeekChar( ) ;
 
   Token *SetNewToken( string value, TokenType type ) ;
@@ -222,6 +230,17 @@ Token* Lexer::ReadOr( ) {
   return tok;
 } // Lexer::ReadOr() 
 
+Token *Lexer::ReadBracket( ) {
+  Token *tok = NULL;
+  if ( mCh == '[' )
+    tok = SetNewToken( "[", LBRACKET ) ;
+
+  else if ( mCh == ']' )
+    tok = SetNewToken( "]", RBRACKET ) ;
+  
+  return tok;
+} // Lexer::ReadBracket()
+
 Token* Lexer::ReadAnd( ) {
   Token *tok = NULL;
   if ( PeekChar( ) == '&' ) {
@@ -234,6 +253,23 @@ Token* Lexer::ReadAnd( ) {
 
   return tok;
 } // Lexer::ReadAnd() 
+
+Token *Lexer::ReadCharacter( ) {
+  string str = "";
+  Token *tok = NULL;
+  ReadChar(); // Read ' char
+  while ( mCh != '\'' ) {
+    str += mCh;
+    ReadChar(); 
+  } // while
+  
+  if ( str.length() > 1 ) 
+    tok = SetNewToken ( "\'", ILLEGAL );
+  else 
+    tok = SetNewToken( str, CHAR ); 
+
+  return tok;
+} // Lexer::ReadCharacter( );
 
 Token *Lexer::ReadString() {
   string str = "";
@@ -368,7 +404,14 @@ Token *Lexer::ReadID( ) {
     tok = SetNewToken( id, KEY_WHILE );
   else if ( id == "return" )
     tok = SetNewToken( id, KEY_RETURN );
-
+  else if ( id == "true" ) 
+    tok = SetNewToken( id, KEY_TRUE );
+  else if ( id == "false" )
+    tok = SetNewToken( id, KEY_FALSE );
+  else if ( id == "cout" ) 
+    tok = SetNewToken( id, COUT );
+  else if ( id == "cin" ) 
+    tok = SetNewToken( id, CIN );
   else
     tok = SetNewToken( id, IDENT ) ;
   return tok;
@@ -527,6 +570,9 @@ Token *Lexer::ReadNextToken( ) {
   else if ( mCh == '<' || mCh == '>' )
     tok = ReadCompare(); 
 
+  else if ( mCh == '\'' ) 
+    tok = ReadCharacter();
+
   // Skip comment
   else if ( mCh == '/' )
     tok = ReadDivide( ) ;
@@ -539,6 +585,9 @@ Token *Lexer::ReadNextToken( ) {
 
   else if ( mCh == '%' )
     tok = SetNewToken( "%", MODULO );
+
+  else if ( mCh == '[' || mCh == ']' )
+    tok = ReadBracket();
 
   else if ( mCh == '\"' )
     tok = ReadString( );
@@ -582,16 +631,23 @@ Environment *Environment::NewEnclosedEnvironment( Environment* outer ) {
 } // Environment::NewEnclosedEnvironment()
 
 bool Environment::VarExist( string var ) {
-  if ( mVars.find( var ) == mVars.end( ) && mOuter != NULL )
-    return mOuter -> VarExist( var );
+  if ( mVars.find( var ) == mVars.end( ) ) {
+    if ( mOuter != NULL )
+      return mOuter -> VarExist( var ); 
+    else
+      return false;
+  } // if
   return true;
 } // Environment::VarExist()
 
 void Environment::Set( string var, Obj *data ) {
-  if ( VarExist( var ) )
+  if ( VarExist( var ) ) {
     mVars [ var ] = data;
-  else
+  } // if
+  else {
     mVars [ var ] = data;
+  } // else
+
 } // Environment::Set()
 
 Obj *Environment::Get( string var ) {
@@ -789,6 +845,40 @@ void Boolean::Inspect( ) {
     cout << "false" << endl;
 } // Boolean::Inspect()
 
+class Char : public Obj {
+  string mType;
+  string mValue;
+
+public:
+  Char( string value, string type ) {
+    mType = type;
+    mValue = value;
+  } // String()
+
+  Environment *GetEnv( ) {
+    return NULL;
+  } // GetEnv() 
+
+  Obj* Eval( Environment *env ) {
+    return NULL;
+  } // Eval()
+
+  void Inspect( ) ;
+  string Type( ) ;
+  string Value( ) ;
+ 
+  vector < Parameter *> GetParameter( ) {
+    vector< Parameter*> prm;
+    return prm;
+  } // GetParameter()
+};
+
+string Char::Type( ) { return mType; } // String::Type()
+
+string Char::Value( ) { return mValue; } // String::Value()
+
+void Char::Inspect( ) { cout << mValue << endl; } // String::Inspect()
+
 class String : public Obj {
   string mType;
   string mValue;
@@ -821,7 +911,22 @@ string String::Type( ) { return mType; } // String::Type()
 
 string String::Value( ) { return mValue; } // String::Value()
 
-void String::Inspect( ) { cout << mValue << endl; } // String::Inspect()
+void String::Inspect( ) { 
+  for ( int i = 0; i < mValue.size(); ++i ) {
+    if ( mValue[i] == '\\' ) {
+      if ( i + 1 < mValue.size() && mValue[i+1] == 'n' ) {
+        ++i;
+        cout << endl;
+      } // if
+      else 
+        cout << mValue[i];
+    } // if
+
+    else 
+      cout << mValue[i];
+  } // for
+
+} // String::Inspect()
 
 class Null : public Obj {
   string mType;
@@ -1059,6 +1164,46 @@ void FloatExpr::Expr( ) {
   cout << mValue << endl; 
 } // FloatExpr::Expr()
 
+class CharExpr : public Expression {
+  char mValue;
+  string mType;
+
+public:
+  CharExpr( char value ) {
+    mValue = value;
+    mType = "Char";
+  } // StringExpr()
+
+  string Type( ) { 
+    return mType; 
+  } // Type()
+
+  void Expr( ) ;
+  void Print( ) ;
+  string Value( ) ;
+  Obj *Eval( Environment *env ) ;
+};
+
+Obj *CharExpr::Eval( Environment *env ) {
+  string str = "";
+  str += mValue; 
+  Obj *result = new Char( str, "Char" ) ;
+  return result;
+} // StringExpr::Eval()
+
+string CharExpr::Value( ) { 
+  string str = "";
+  str += mValue;
+  return str; 
+} // StringExpr::Value()
+
+void CharExpr::Print( ) { 
+  cout << mValue; 
+} // StringExpr::Print()
+
+void CharExpr::Expr( ) { 
+} // StringExpr::Expr()
+
 class StringExpr : public Expression {
   string mValue;
   string mType;
@@ -1094,6 +1239,55 @@ void StringExpr::Print( ) {
 
 void StringExpr::Expr( ) { 
 } // StringExpr::Expr()
+
+class CoutExpr : public Expression {
+  vector< Expression* > mArgs;
+  string mType;
+
+public:
+  CoutExpr( ) {
+    mType = "Cout Expression";
+  } // CoutExpr()
+
+  string Type( ) { 
+    return mType; 
+  } // Type()
+
+  string Value( ) { 
+    return ""; 
+  } // Value()
+
+  void Expr( ) { } // Expr() 
+
+  void Print( ) ;
+  void Append( Expression* expr );
+  Obj *Eval( Environment *env ) ;
+
+};
+
+void CoutExpr::Append( Expression* expr ) {
+  mArgs.push_back(expr);
+} // CoutExpr::Append() 
+
+Obj *CoutExpr::Eval( Environment *env ) {
+  Obj* obj = NULL; 
+  for ( int i = 0; i < mArgs.size(); ++i ) {
+    obj = mArgs[i] -> Eval( env );
+    obj -> Inspect();
+  } // for
+
+  return obj;
+} // CoutExpr::Eval()
+
+void CoutExpr::Print() {
+  cout << "cout << ";
+  for ( int i = 0; i < mArgs.size(); ++i ) {
+    mArgs[i] -> Print();
+    if ( i + 1 < mArgs.size() )
+      cout << " << ";
+  } // for
+  cout << ";\n";
+} // CoutExpr::Print()
 
 class BinExpr : public Expression {
   Expression *mLeft;
@@ -1262,6 +1456,103 @@ void BinExpr::Print( ) {
 
 void BinExpr::Expr( ) { } // BinExpr::Expr()
 
+class BooleanExpression : public Expression {
+  Token *mTok;
+  string mValue;
+  string mType;
+
+public:
+  BooleanExpression( Token *tok, string val ) {
+    mValue = val;
+    mTok = tok;
+    mType = "Boolean";
+  } // SymbolExpression()
+
+  string Type( ) { 
+    return mType; 
+  } // Type()
+
+  string Value( ) { 
+    return mValue; 
+  } // Value()
+
+  void Expr( ) { 
+  } // Expr()
+
+  void Print( ) ;
+
+  Obj *Eval( Environment *env ) ;
+};
+
+void BooleanExpression::Print() {
+  cout << mValue;
+} // SymbolExpression::Print()
+
+Obj *BooleanExpression::Eval( Environment *env ) {
+  bool result = false;
+  if ( mValue == "true" )
+    result = true;
+
+  Obj *var = NULL;
+  var = new Boolean( result, "Boolean" );
+  return var;
+} // SymbolExpression::Eval()
+
+
+class DeclareArrayExpression : public Expression {
+  Token *mTok;
+  Expression* mSize;
+  string mValue;
+  string mType;
+
+public:
+  DeclareArrayExpression( Token *tok, string val, Expression* size ) {
+    mValue = val;
+    mTok = tok;
+    mSize=  size;
+    mType = "Array Expression";
+  } // SymbolExpression()
+
+  string Type( ) { 
+    return mType; 
+  } // Type()
+
+  string Value( ) { 
+    return mValue; 
+  } // Value()
+
+  void Expr( ) { 
+  } // Expr()
+
+  void Print( ) ;
+  
+  Obj *Eval( Environment *env ) ;
+} ;
+
+void DeclareArrayExpression::Print() {
+  cout << mValue << "[";
+  mSize -> Print();
+  cout << "]"; 
+} // DeclareArrayExpression() 
+
+Obj *DeclareArrayExpression::Eval( Environment *env ) {
+  int size = 0; 
+  Obj* msize = mSize -> Eval( env );
+  size = GStringToInt( msize -> Value() );
+  cout << size;
+
+  for ( int i = 0; i < size; ++i ) {
+    stringstream ss;
+    ss << i;
+    string index = ss.str();
+    index = mValue + "[" + index + "]";
+
+    env -> Set( index, NULL );
+  } // for
+
+  return msize;
+} // DeclareArrayExpression::Eval()
+
 class SymbolExpression : public Expression {
   Token *mTok;
   string mValue;
@@ -1347,7 +1638,6 @@ void UpdateExpression::Print() {
 Obj *UpdateExpression::Eval( Environment *env ) {
   Obj* obj = env -> Get( mId -> Value() ); 
   string value = obj -> Value();
-
   Obj* res = NULL; 
   if ( mPrefix ) {
 
@@ -1610,7 +1900,7 @@ public:
 } ;
 
 void CallExpression::Print() {
-  mFunction -> Value();
+  cout << mFunction -> Value();
   cout << "( ";
   for ( int i = 0; i < mArgs.size(); ++i ) {
     mArgs[i] -> Print();
@@ -1670,7 +1960,7 @@ Obj* CallExpression::Eval( Environment *env ) {
 
 class DeclarationStatement : public Statement {
   Token* mTok; // Type token
-  vector < SymbolExpression* > mIds;
+  vector < Expression* > mIds;
   string mType;
 
 public: 
@@ -1686,8 +1976,14 @@ public:
   void Print( ) ;
   string Type( ) ;
   string Value( ) ;
+
+  void AppendArr( Expression* expr ); 
   Obj *Eval( Environment *env ) ;
 };
+
+void DeclarationStatement::AppendArr( Expression* expr ) {
+  mIds.push_back( expr );
+} // DeclarationStatement::Append()
 
 void DeclarationStatement::Append( Token* id ) {
   SymbolExpression *symbol = new SymbolExpression( id, id -> value);
@@ -1715,15 +2011,25 @@ string DeclarationStatement::Value() {
 Obj *DeclarationStatement::Eval( Environment *env ) {
   TokenType tp = mTok -> type;
   Obj* obj = NULL;
+  
   if ( tp == KEY_INT )
     obj = new Integer( 0, "Integer" );
+  
   else if ( tp == KEY_FLOAT )
     obj = new Float( 0.0, "FLoat" );
+
   else if ( tp == KEY_STRING ) 
     obj = new String( "String", "" );
 
-  for ( int i = 0; i < mIds.size(); ++i )
-    env -> Set( mIds[i] -> Value(), obj );
+  else if ( tp == KEY_BOOL )
+    obj = new Boolean( false, "Boolean" );
+
+  for ( int i = 0; i < mIds.size(); ++i ) { 
+    if ( mIds[i] -> Type() != "Array Expression" ) 
+      env -> Set( mIds[i] -> Value(), obj );
+    else 
+      mIds[i] -> Eval( env );
+  } // for
 
   return obj;
 } //  DeclarationStatment::Eval()
@@ -1888,7 +2194,7 @@ public:
 
 Obj *AssignmentExpr::EvalInt( string var, string rhs ) {
   int left = GStringToFloat( var );
-  int right = GStringToFloat( var );
+  int right = GStringToFloat( rhs );
   if ( mToken -> type == PLUS_EQ )
     left += right;
   else if ( mToken -> type == MINUS_EQ )
@@ -1917,7 +2223,8 @@ Obj *AssignmentExpr::EvalString( string var, string rhs ) {
 
 Obj *AssignmentExpr::EvalFloat( string var, string rhs ) {
   float left = GStringToFloat( var );
-  float right = GStringToFloat( var );
+  float right = GStringToFloat( rhs );
+  cout << right;
   if ( mToken -> type == PLUS_EQ )
     left += right;
   else if ( mToken -> type == MINUS_EQ )
@@ -2002,10 +2309,9 @@ Obj *Program::Eval( Environment *env ) {
   while ( mBody.size( ) > 0 ) {
     stmt = Pop( ) ;
     obj = stmt->Eval( env ) ;
-    if ( obj != NULL )
-      obj->Inspect( ) ;
-    else
+    if ( obj == NULL ) 
       return NULL;
+    // obj -> Inspect();
   } // while
 
   return obj;
@@ -2129,7 +2435,10 @@ typedef enum {
   IF_PARSER,
   ILLEGAL_PARSER,
   CALL_PARSER,
-  STRING_PARSER
+  STRING_PARSER,
+  CHAR_PARSER, 
+  BOOL_PARSER, 
+  COUT_PARSER
 } Handler
 ;
 
@@ -2173,21 +2482,24 @@ public:
   // Parse expression
   BlockStatement *ParseBlockStatement( Environment* env ) ;
   Expression *ParseIf( ) ;
-  vector <Parameter *> ParseParameter( ); 
+  Expression *ParseCoutExpr( Environment *evn );
+  Expression *ParseBoolean( Environment *env );
   Expression *ParseGroup( Environment *env ) ;
   Expression *ParseNumber( Environment *env ) ;
   Expression *ParseString( Environment *env ) ;
+  Expression *ParseChar( Environment *env );
   Expression *ParseIdentifier( Environment *env ) ;
-  Expression *ParseExpression( BindingPower bp, Environment *env ) ;
-  Expression *ParseInfix( Expression *left, Environment *env ) ;
-  Expression *ParsePrefix( Environment *env ) ;
+  Expression *ParseExpression( BindingPower bp, Environment *env, bool CinCout ) ;
+  Expression *ParseInfix( Expression *left, Environment *env, bool CinCout ) ;
+  Expression *ParsePrefix( Environment *env, bool CinCout ) ;
   Expression *ParseAssignExpr( Expression* left, Environment *env ) ;
   Expression *ParseCallExpr( Expression* left, Environment *env );
   vector <Expression *> ParseCallArgs( Environment *env ); 
+  vector <Parameter *> ParseParameter( ); 
 
   // Map register
-  Expression *PrefixExecutor( Environment *env ) ;
-  Expression *InfixExecutor( Expression *left, Environment *env ) ;
+  Expression *PrefixExecutor( Environment *env, bool CinCout ) ;
+  Expression *InfixExecutor( Expression *left, Environment *env, bool CinCout ) ;
   void RegisterPrefix( TokenType tp, Handler fn ) ;
   void RegisterInfix( TokenType tp, Handler fn ) ;
 };
@@ -2272,6 +2584,9 @@ void Parser::Mapper( ) {
 
   // Mapping token type with their associated parser
   RegisterPrefix( IDENT, IDENTIFER_PARSER ) ;
+  RegisterPrefix( COUT, COUT_PARSER );
+  RegisterPrefix( KEY_TRUE, BOOL_PARSER );
+  RegisterPrefix( KEY_FALSE, BOOL_PARSER ); 
   RegisterPrefix( FLOAT, NUMBER_PARSER ) ;
   RegisterPrefix( INT, NUMBER_PARSER ) ;
   RegisterPrefix( MINUS, PREFIX_PARSER ) ;
@@ -2282,6 +2597,7 @@ void Parser::Mapper( ) {
   RegisterPrefix( PLUSPLUS, IDENTIFER_PARSER );
   RegisterPrefix( MINUSMINUS, IDENTIFER_PARSER );
   RegisterPrefix( STRING, STRING_PARSER );
+  RegisterPrefix( CHAR, CHAR_PARSER );
 
   RegisterInfix( MINUS_EQ, ASSIGNMENT_PARSER );
   RegisterInfix( DIVIDE_EQ, ASSIGNMENT_PARSER );
@@ -2307,7 +2623,7 @@ void Parser::Mapper( ) {
 
 } // Parser::Mapper()
 
-Expression *Parser::PrefixExecutor( Environment *env ) {
+Expression *Parser::PrefixExecutor( Environment *env, bool CinCout ) {
 
   Expression *expr = NULL;
   Handler fn = mPrefixFNs [ mToks[0] -> type ];
@@ -2321,15 +2637,26 @@ Expression *Parser::PrefixExecutor( Environment *env ) {
     expr = ParseNumber( env ) ;
 
   else if ( fn == PREFIX_PARSER ) {
-    expr = ParsePrefix( env ) ;
+    expr = ParsePrefix( env, CinCout ) ;
     return expr;
   } // else if 
 
   else if ( fn == GROUP_PARSER )
     expr = ParseGroup( env ); 
+  
+  else if ( fn == COUT_PARSER ) {
+    expr = ParseCoutExpr( env );
+    return expr;
+  } // else if
+
+  else if ( fn == BOOL_PARSER )
+    expr = ParseBoolean( env );
 
   else if ( fn == STRING_PARSER )
     expr = ParseString( env );
+
+  else if ( fn == CHAR_PARSER )
+    expr = ParseChar( env );
 
   else if ( fn == ILLEGAL_PARSER )
     return NULL;
@@ -2347,13 +2674,13 @@ vector<Expression *> Parser::ParseCallArgs( Environment *env ) {
   if ( CurrentTokenIs( RPAREN ) ) 
     return args;
 
-  Expression *expr = ParseExpression( LOWEST, env );
+  Expression *expr = ParseExpression( LOWEST, env, false );
   args.push_back( expr );
   
   while ( CurrentTokenIs( COMMA ) ) {
     Pop();
     NextToken();
-    expr = ParseExpression( LOWEST, env );
+    expr = ParseExpression( LOWEST, env, false );
     args.push_back( expr );
   } // while
 
@@ -2377,11 +2704,11 @@ Expression *Parser::ParseCallExpr( Expression *left, Environment *env ) {
   return expr;
 } // Parser::ParseCallExpr()
 
-Expression *Parser::InfixExecutor( Expression *left, Environment *env ) {
+Expression *Parser::InfixExecutor( Expression *left, Environment *env, bool CinCout ) {
   Expression *expr = NULL;
   Handler fn = mInfixFNs [ mToks[0] -> type ];
   if ( fn == INFIX_PARSER )
-    expr = ParseInfix( left, env ) ;
+    expr = ParseInfix( left, env, CinCout ) ;
 
   else if ( fn == ASSIGNMENT_PARSER ) 
     expr = ParseAssignExpr( left, env );
@@ -2418,10 +2745,16 @@ bool Parser::CurrentTokenIs( TokenType tp ) {
   return false;
 } // Parser::CurrentTokenIs()
 
+Expression *Parser::ParseBoolean( Environment *env ) {
+  Token* current = mToks[0];
+  Expression *expr = new BooleanExpression( current, current -> value );
+  return expr;
+} // Parser::ParseBoolean()
+
 Expression* Parser::ParseGroup( Environment *env ) {
   Pop();
   NextToken();
-  Expression *expr = ParseExpression( LOWEST, env );
+  Expression *expr = ParseExpression( LOWEST, env, false );
   if ( !CurrentTokenIs( RPAREN ) ) {
     string err = "Unexpected token : '" + mToks[0] -> value + "'\n";
     mErrs.push_back( err ); 
@@ -2433,6 +2766,15 @@ Expression* Parser::ParseGroup( Environment *env ) {
 
   return expr;
 } // Parser::ParseGroup()
+
+
+Expression *Parser::ParseChar( Environment *env ) {
+  string str = mToks[0] -> value;
+  char ch = str[0];
+  CharExpr *expr = new CharExpr( ch );
+  return expr;
+} // Parser::ParseChar()
+
 
 Expression *Parser::ParseString( Environment *env ) {
   string str = mToks[0] -> value;
@@ -2456,7 +2798,7 @@ Expression *Parser::ParseNumber( Environment *env ) {
 } // Parser::ParseNumber()
 
 
-Expression *Parser::ParsePrefix( Environment *env ) {
+Expression *Parser::ParsePrefix( Environment *env, bool CinCout ) {
   Token *op = Pop();
   NextToken( ) ;
 
@@ -2466,7 +2808,7 @@ Expression *Parser::ParsePrefix( Environment *env ) {
     return NULL; 
   } // if
 
-  Expression *right = ParseExpression( PREFIX, env ) ;
+  Expression *right = ParseExpression( PREFIX, env, CinCout ) ;
   if ( right == NULL  )
     return NULL;
 
@@ -2475,12 +2817,12 @@ Expression *Parser::ParsePrefix( Environment *env ) {
   return prefix;
 } // Parser::ParsePrefix()
 
-Expression *Parser::ParseInfix( Expression *left, Environment *env ) {
+Expression *Parser::ParseInfix( Expression *left, Environment *env, bool CinCout ) {
   BinExpr* infix = NULL;
   Token *op = Pop(); 
   BindingPower bp = BPLookUp( op );
   NextToken();
-  Expression* right = ParseExpression( bp, env );
+  Expression* right = ParseExpression( bp, env, CinCout );
   if ( right != NULL ) 
     infix = new BinExpr( left, op, right ); 
 
@@ -2500,7 +2842,7 @@ Expression *Parser::ParseIdentifier( Environment *env ) {
       mErrs.push_back( err ); 
       return NULL;
     } // if
-    
+
 
     SymbolExpression *id = new SymbolExpression( mToks[0], mToks[0] -> value );
     UpdateExpression *upexpr = new UpdateExpression( op, id, true );
@@ -2538,9 +2880,6 @@ Expression *Parser::ParseIdentifier( Environment *env ) {
 vector <Parameter*> Parser::ParseParameter() {
   vector <Parameter*> params;
   bool pbr = false;
-
-
- 
   // Skip ( 
   Pop();
   NextToken();
@@ -2589,7 +2928,7 @@ vector <Parameter*> Parser::ParseParameter() {
 } // Parser::ParseParameter()
 
 
-Expression *Parser::ParseExpression( BindingPower bp, Environment *env ) {
+Expression *Parser::ParseExpression( BindingPower bp, Environment *env, bool CoutCin ) {
   // At first enter
   if ( mToks[0] -> type == ILLEGAL ) {
     string err = "Unrecognized token with first char : '" + mToks[0] -> value + "'\n";
@@ -2603,15 +2942,18 @@ Expression *Parser::ParseExpression( BindingPower bp, Environment *env ) {
     return NULL;
   } // if
 
-  Expression *left = PrefixExecutor( env );
+  Expression *left = PrefixExecutor( env, CoutCin );
   if ( left == NULL )
     return NULL;
-    
+
   if ( mToks[0] -> type == ILLEGAL ) {
     string err = "Unrecognized token with first char : '" + mToks[0] -> value + "'\n";
     mErrs.push_back( err ); 
     return NULL;
   } // if 
+
+  if ( mToks[0] -> type == LEFT_SHIFT && CoutCin ) 
+    return left;
 
   while ( mToks[0] -> type != SEMICOLON && bp < BPLookUp( mToks[0] ) ) {
     if ( mInfixFNs.find( mToks[0] -> type ) == mInfixFNs.end() ) {
@@ -2620,15 +2962,18 @@ Expression *Parser::ParseExpression( BindingPower bp, Environment *env ) {
       return NULL;
     } // if
       
-    left = InfixExecutor( left, env );
+    left = InfixExecutor( left, env, CoutCin );
+    if ( left == NULL )
+      return NULL;
+    
     if ( mToks[0] -> type == ILLEGAL ) {
       string err = "Unrecognized token with first char : '" + mToks[0] -> value + "'\n";
       mErrs.push_back( err ); 
       return NULL;
-    } // if 
+    } // if
 
-    if ( left == NULL )
-      return NULL;
+    if ( mToks[0] -> type == LEFT_SHIFT && CoutCin ) 
+      return left;
   } // while
 
   return left;
@@ -2664,7 +3009,7 @@ BlockStatement* Parser::ParseBlockStatement( Environment *env ) {
 Statement* Parser::ParseExpressionStmt( Environment *env ) {
   ExpressionStatement *exprStmt = NULL;
   Token *start = mToks[0]; 
-  Expression *expr = ParseExpression( LOWEST, env ); 
+  Expression *expr = ParseExpression( LOWEST, env, false ); 
   if ( expr == NULL  )
     return NULL;
 
@@ -2680,7 +3025,7 @@ Statement* Parser::ParseExpressionStmt( Environment *env ) {
 Expression *Parser::ParseAssignExpr( Expression* left, Environment *env ) {
   Token *op = Pop();
   NextToken();
-  Expression *rhs = ParseExpression( LOWEST, env );
+  Expression *rhs = ParseExpression( LOWEST, env, false );
   if ( rhs == NULL )
     return NULL;
 
@@ -2692,7 +3037,7 @@ Statement *Parser::ParseReturnStmt( Environment *env ) {
   Statement *stmt = NULL;
   Token* ret = Pop(); 
   NextToken();
-  Expression *rhs = ParseExpression( LOWEST, env );
+  Expression *rhs = ParseExpression( LOWEST, env, false );
   stmt = new ReturnStmt( ret, rhs ); 
   Token* end = Pop();
   if ( !Expect( end, SEMICOLON ) )
@@ -2765,6 +3110,33 @@ Statement *Parser::ParseAssignStmt( Environment *env ) {
   return stmt;
 } // Parser::ParseAssignStmt()
 
+Expression* Parser::ParseCoutExpr( Environment *env ) { 
+  CoutExpr* ccout = new CoutExpr(); 
+  Pop(); // skip cout 
+  NextToken(); 
+  Token *shift =  Pop();
+  if ( !Expect( shift, LEFT_SHIFT ) )
+    return NULL; 
+
+  NextToken();
+  Expression *expr = ParseExpression( LOWEST, env, true );
+  if ( expr == NULL ) 
+    return NULL;
+
+  ccout -> Append( expr );
+  while ( CurrentTokenIs( LEFT_SHIFT ) ) {
+    Pop();
+    NextToken();
+    expr = ParseExpression( LOWEST, env, true );
+    if ( expr == NULL ) 
+      return NULL;
+
+    ccout -> Append( expr );
+  } // while
+
+  return ccout;
+} // Parser::ParseCoutExpr()
+
 
 Statement *Parser::ParseLetStmt( Environment *env ) {
   DeclarationStatement *stmt = NULL;
@@ -2775,8 +3147,22 @@ Statement *Parser::ParseLetStmt( Environment *env ) {
   if ( !Expect( mToks[0], IDENT ) ) 
     return stmt;
   Token *id = Pop();
-  stmt -> Append( id ); 
+  NextToken();
 
+  // [ is encounterd ;
+  if ( CurrentTokenIs( LBRACKET ) ) { 
+    Pop();
+    NextToken();
+    Expression *expr = ParseExpression( LOWEST, env, false );
+    Token *end = Pop();
+    if ( !Expect( end, RBRACKET ) )
+      return NULL;
+    DeclareArrayExpression *arr = new DeclareArrayExpression( id, id -> value, expr );
+    stmt -> AppendArr( arr );
+  } // if
+  else 
+    stmt -> Append( id ); 
+  
   NextToken();
   if ( CurrentTokenIs( LPAREN ) ) {
     SymbolExpression *ident = new SymbolExpression( id, id -> value );
@@ -2794,7 +3180,23 @@ Statement *Parser::ParseLetStmt( Environment *env ) {
     if ( !Expect( mToks[0], IDENT ) )
       return NULL;
     id = Pop();
-    stmt -> Append( id ); 
+    NextToken();
+
+    // [ is encounterd ;
+    if ( CurrentTokenIs( LBRACKET ) ) { 
+      Pop();
+      NextToken();
+      Expression *expr = ParseExpression( LOWEST, env, false );
+      Token *end = Pop();
+      if ( !Expect( end, RBRACKET ) )
+        return NULL;
+      DeclareArrayExpression *arr = new DeclareArrayExpression( id, id -> value, expr );
+      stmt -> AppendArr( arr );
+    } // if
+
+    else 
+      stmt -> Append( id );
+
     NextToken();
   } // while
 
@@ -2818,7 +3220,7 @@ Statement *Parser::ParseStatement( Environment *env ) {
 
   else if ( mToks[0] -> type == LBRACE )
     stmt = ParseBlockStatement( env );
-
+  
   else
     stmt = ParseExpressionStmt( env );
 
@@ -2864,7 +3266,7 @@ Program *Parser::ParseProgram( ) {
     while ( mCurToken-> type != EOFF  && mCurToken -> value != "quit" ) {
       Statement *stmt = ParseStatement( env );
       if ( stmt != NULL ) {
-        stmt -> Print();
+        // stmt -> Print();
         program -> Append( stmt );
         obj = program -> Eval( env );
         if ( obj == NULL )
